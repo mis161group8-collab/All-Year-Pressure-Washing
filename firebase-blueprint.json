@@ -1,0 +1,492 @@
+{
+  "entities": {
+    "CustomerProfile": {
+      "title": "CustomerProfile",
+      "description": "Authenticated customer contact profile stored to pre-fill quotes and bookings and isolate customer PII.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the customer.",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Customer full name.",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "Customer email address.",
+          "maxLength": 200
+        },
+        "phone": {
+          "type": "string",
+          "description": "Customer phone number.",
+          "minLength": 7,
+          "maxLength": 30
+        },
+        "address": {
+          "type": "string",
+          "description": "Default service street address.",
+          "maxLength": 300
+        },
+        "notes": {
+          "type": "string",
+          "description": "Property access or gate preferences.",
+          "maxLength": 1000
+        },
+        "role": {
+          "type": "string",
+          "enum": ["customer"],
+          "description": "Fixed customer role to prevent self-assigned admin elevation."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of profile creation."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp of latest update."
+        }
+      },
+      "required": ["uid", "name", "email", "phone", "role", "createdAt", "updatedAt"]
+    },
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Authorized administrator directory entry.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "role": {
+          "type": "string",
+          "enum": ["admin"]
+        }
+      },
+      "required": ["uid", "email", "name", "role"]
+    },
+    "BlockedSlot": {
+      "title": "BlockedSlot",
+      "description": "Unavailable date or time window blocked by administrator dispatch.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "date": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "timeSlot": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 40
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "createdBy": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "date", "timeSlot", "reason", "createdBy", "createdAt"]
+    },
+    "QuoteRequest": {
+      "title": "QuoteRequest",
+      "description": "Customer quote request record linked to authenticated customer UID.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200
+        },
+        "phone": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 30
+        },
+        "serviceId": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "serviceName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "propertyAddress": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "areaDescription": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "status": {
+          "type": "string",
+          "enum": ["new", "reviewed", "quoted", "accepted", "declined"]
+        },
+        "estimatedPrice": {
+          "type": "number"
+        },
+        "adminNotes": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "customerId",
+        "customerName",
+        "email",
+        "phone",
+        "serviceId",
+        "serviceName",
+        "propertyAddress",
+        "status",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "Scheduled or historical pressure-washing job tied to an authenticated customer UID.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "customerEmail": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200
+        },
+        "customerPhone": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 30
+        },
+        "serviceId": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "serviceName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "serviceAddress": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "scheduledDate": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "scheduledTime": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 40
+        },
+        "technicianId": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "technicianName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "status": {
+          "type": "string",
+          "enum": ["scheduled", "en_route", "in_progress", "completed", "cancelled"]
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "technicianNotes": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "price": {
+          "type": "number"
+        },
+        "paymentStatus": {
+          "type": "string",
+          "enum": ["pending", "invoiced", "paid", "overdue", "refunded"]
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "customerId",
+        "customerName",
+        "customerEmail",
+        "customerPhone",
+        "serviceId",
+        "serviceName",
+        "serviceAddress",
+        "scheduledDate",
+        "scheduledTime",
+        "technicianId",
+        "technicianName",
+        "status",
+        "price",
+        "paymentStatus",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "PaymentRecord": {
+      "title": "PaymentRecord",
+      "description": "Administrator-recorded payment transaction.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "appointmentId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "amount": {
+          "type": "number"
+        },
+        "method": {
+          "type": "string",
+          "enum": ["Credit Card", "Check", "Cash", "Bank Transfer", "Online"]
+        },
+        "status": {
+          "type": "string",
+          "enum": ["paid", "pending", "refunded"]
+        },
+        "transactionRef": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "date": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "appointmentId", "customerName", "amount", "method", "status", "transactionRef", "date", "createdAt"]
+    },
+    "AdminNotification": {
+      "title": "AdminNotification",
+      "description": "Quote access alerts delivered to administrator inbox.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["quote_access", "system", "message"]
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "customerName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "customerEmail": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200
+        },
+        "customerPhone": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "serviceName": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "propertyAddress": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "read": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "customerId", "type", "title", "customerName", "customerEmail", "customerPhone", "serviceName", "propertyAddress", "read", "createdAt"]
+    },
+    "DialogueMessage": {
+      "title": "DialogueMessage",
+      "description": "Persistent customer-dispatch dialogue record scoped to a customer UID thread.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "threadId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "customerName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "senderRole": {
+          "type": "string",
+          "enum": ["client", "admin", "technician"]
+        },
+        "senderName": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "timestamp": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "threadId", "customerName", "senderRole", "senderName", "message", "timestamp", "createdAt"]
+    }
+  },
+  "firestore": {
+    "/customers/{customerId}": {
+      "schema": { "$ref": "#/entities/CustomerProfile" },
+      "description": "Private customer profile PII documents keyed by Firebase Auth UID."
+    },
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Authorized administrator directory keyed by Firebase Auth UID."
+    },
+    "/blockedSlots/{slotId}": {
+      "schema": { "$ref": "#/entities/BlockedSlot" },
+      "description": "Admin-blocked unavailable dates and arrival windows."
+    },
+    "/quotes/{quoteId}": {
+      "schema": { "$ref": "#/entities/QuoteRequest" },
+      "description": "Customer quote requests isolated by customerId UID."
+    },
+    "/appointments/{appointmentId}": {
+      "schema": { "$ref": "#/entities/Appointment" },
+      "description": "Appointments and job history isolated by customerId UID."
+    },
+    "/payments/{paymentId}": {
+      "schema": { "$ref": "#/entities/PaymentRecord" },
+      "description": "Admin-only payment transaction ledger."
+    },
+    "/adminNotifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/AdminNotification" },
+      "description": "Admin-only quote access alerts."
+    },
+    "/dialogueMessages/{messageId}": {
+      "schema": { "$ref": "#/entities/DialogueMessage" },
+      "description": "Customer-dispatch message log isolated by threadId == customer UID."
+    }
+  }
+}

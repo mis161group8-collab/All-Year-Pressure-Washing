@@ -1,0 +1,6 @@
+{
+  "name": "All Year Pressure Washing",
+  "description": "Clean, minimalist web platform for All Year Pressure Washing featuring online quotes, appointment booking, administrative scheduling, customer portal, and field technician management.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

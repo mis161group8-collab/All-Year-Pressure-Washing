@@ -1,0 +1,409 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Default-Deny Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // 2. Global Security Primitives
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedEmail() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedEmail() && request.auth.token.email == 'mis161group8@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (isVerifiedEmail() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
+    }
+
+    // 3. Entity Validation Blueprints (No existing() or diff() inside helpers)
+    function isValidCustomer(data) {
+      return data.keys().hasAll(['uid', 'name', 'email', 'phone', 'role', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'name', 'email', 'phone', 'address', 'notes', 'role', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 200
+        && data.phone is string && data.phone.size() >= 7 && data.phone.size() <= 30
+        && (!('address' in data) || (data.address is string && data.address.size() <= 300))
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000))
+        && data.role == 'customer'
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAdminUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'name', 'role'])
+        && data.keys().hasOnly(['uid', 'email', 'name', 'role'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 200
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && data.role == 'admin';
+    }
+
+    function isValidBlockedSlot(data) {
+      return data.keys().hasAll(['id', 'date', 'timeSlot', 'reason', 'createdBy', 'createdAt'])
+        && data.keys().hasOnly(['id', 'date', 'timeSlot', 'reason', 'createdBy', 'createdAt'])
+        && isValidId(data.id)
+        && data.date is string && data.date.size() == 10 && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && data.timeSlot is string && data.timeSlot.size() >= 3 && data.timeSlot.size() <= 40
+        && data.reason is string && data.reason.size() >= 1 && data.reason.size() <= 300
+        && isValidId(data.createdBy)
+        && data.createdAt is timestamp;
+    }
+
+    function isValidQuote(data) {
+      return data.keys().hasAll([
+          'id', 'customerId', 'customerName', 'email', 'phone',
+          'serviceId', 'serviceName', 'propertyAddress', 'status',
+          'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'customerId', 'customerName', 'email', 'phone',
+          'serviceId', 'serviceName', 'mainCategory', 'subcategories',
+          'removalNeeds', 'otherRemovalDetails', 'timingPreference',
+          'preferredDate', 'streetAddress', 'city', 'state', 'zipCode',
+          'propertyAddress', 'areaDescription', 'squareFootage',
+          'photoCount', 'status', 'estimatedPrice', 'adminNotes',
+          'createdDate', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.customerId)
+        && data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 120
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 200
+        && data.phone is string && data.phone.size() >= 7 && data.phone.size() <= 30
+        && data.serviceId is string && data.serviceId.size() >= 1 && data.serviceId.size() <= 80
+        && data.serviceName is string && data.serviceName.size() >= 1 && data.serviceName.size() <= 160
+        && data.propertyAddress is string && data.propertyAddress.size() >= 1 && data.propertyAddress.size() <= 300
+        && (!('mainCategory' in data) || (data.mainCategory is string && data.mainCategory.size() <= 120))
+        && (!('subcategories' in data) || (data.subcategories is list && data.subcategories.size() <= 20 && (data.subcategories.size() == 0 || data.subcategories[0] is string)))
+        && (!('removalNeeds' in data) || (data.removalNeeds is list && data.removalNeeds.size() <= 10 && (data.removalNeeds.size() == 0 || data.removalNeeds[0] is string)))
+        && (!('otherRemovalDetails' in data) || (data.otherRemovalDetails is string && data.otherRemovalDetails.size() <= 500))
+        && (!('timingPreference' in data) || (data.timingPreference in ['asap', 'flexible', 'specific_date']))
+        && (!('preferredDate' in data) || (data.preferredDate is string && data.preferredDate.size() <= 20))
+        && (!('streetAddress' in data) || (data.streetAddress is string && data.streetAddress.size() <= 200))
+        && (!('city' in data) || (data.city is string && data.city.size() <= 100))
+        && (!('state' in data) || (data.state is string && data.state.size() <= 30))
+        && (!('zipCode' in data) || (data.zipCode is string && data.zipCode.size() <= 20))
+        && (!('areaDescription' in data) || (data.areaDescription is string && data.areaDescription.size() <= 2000))
+        && (!('squareFootage' in data) || (data.squareFootage is number && data.squareFootage >= 0))
+        && (!('photoCount' in data) || (data.photoCount is number && data.photoCount >= 0 && data.photoCount <= 10))
+        && data.status in ['new', 'reviewed', 'quoted', 'accepted', 'declined']
+        && (!('estimatedPrice' in data) || (data.estimatedPrice is number && data.estimatedPrice >= 0))
+        && (!('adminNotes' in data) || (data.adminNotes is string && data.adminNotes.size() <= 1000))
+        && (!('createdDate' in data) || (data.createdDate is string && data.createdDate.size() <= 20))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidAppointment(data) {
+      return data.keys().hasAll([
+          'id', 'customerId', 'customerName', 'customerEmail', 'customerPhone',
+          'serviceId', 'serviceName', 'serviceAddress', 'scheduledDate',
+          'scheduledTime', 'technicianId', 'technicianName', 'status',
+          'price', 'paymentStatus', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'quoteId', 'customerId', 'customerName', 'customerEmail',
+          'customerPhone', 'serviceId', 'serviceName', 'serviceAddress',
+          'scheduledDate', 'scheduledTime', 'technicianId', 'technicianName',
+          'status', 'notes', 'technicianNotes', 'price', 'paymentStatus',
+          'paymentMethod', 'paidAt', 'completedAt', 'cancellationReason',
+          'squareFootage', 'createdAt', 'updatedAt'
+        ])
+        && isValidId(data.id)
+        && (!('quoteId' in data) || isValidId(data.quoteId))
+        && isValidId(data.customerId)
+        && data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 120
+        && data.customerEmail is string && data.customerEmail.size() >= 3 && data.customerEmail.size() <= 200
+        && data.customerPhone is string && data.customerPhone.size() >= 7 && data.customerPhone.size() <= 30
+        && data.serviceId is string && data.serviceId.size() >= 1 && data.serviceId.size() <= 80
+        && data.serviceName is string && data.serviceName.size() >= 1 && data.serviceName.size() <= 160
+        && data.serviceAddress is string && data.serviceAddress.size() >= 1 && data.serviceAddress.size() <= 300
+        && data.scheduledDate is string && data.scheduledDate.size() == 10 && data.scheduledDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && data.scheduledTime is string && data.scheduledTime.size() >= 3 && data.scheduledTime.size() <= 40
+        && data.technicianId is string && data.technicianId.size() >= 1 && data.technicianId.size() <= 80
+        && data.technicianName is string && data.technicianName.size() >= 1 && data.technicianName.size() <= 120
+        && data.status in ['scheduled', 'en_route', 'in_progress', 'completed', 'cancelled']
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000))
+        && (!('technicianNotes' in data) || (data.technicianNotes is string && data.technicianNotes.size() <= 1000))
+        && data.price is number && data.price >= 0
+        && data.paymentStatus in ['pending', 'invoiced', 'paid', 'overdue', 'refunded']
+        && (!('paymentMethod' in data) || (data.paymentMethod in ['Credit Card', 'Check', 'Cash', 'Bank Transfer', 'Online']))
+        && (!('paidAt' in data) || (data.paidAt is string && data.paidAt.size() <= 40))
+        && (!('completedAt' in data) || (data.completedAt is string && data.completedAt.size() <= 40))
+        && (!('cancellationReason' in data) || (data.cancellationReason is string && data.cancellationReason.size() <= 500))
+        && (!('squareFootage' in data) || (data.squareFootage is number && data.squareFootage >= 0))
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidPayment(data) {
+      return data.keys().hasAll([
+          'id', 'appointmentId', 'customerName', 'amount', 'method',
+          'status', 'transactionRef', 'date', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'appointmentId', 'customerName', 'amount', 'method',
+          'status', 'transactionRef', 'date', 'notes', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.appointmentId)
+        && data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 120
+        && data.amount is number && data.amount >= 0
+        && data.method in ['Credit Card', 'Check', 'Cash', 'Bank Transfer', 'Online']
+        && data.status in ['paid', 'pending', 'refunded']
+        && data.transactionRef is string && data.transactionRef.size() >= 1 && data.transactionRef.size() <= 80
+        && data.date is string && data.date.size() >= 1 && data.date.size() <= 20
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 500))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidAdminNotification(data) {
+      return data.keys().hasAll([
+          'id', 'customerId', 'type', 'title', 'customerName',
+          'customerEmail', 'customerPhone', 'serviceName', 'propertyAddress',
+          'read', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'customerId', 'type', 'title', 'customerName',
+          'customerEmail', 'customerPhone', 'serviceName', 'propertyAddress',
+          'squareFootage', 'estimatedPrice', 'timestamp', 'read', 'notes', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.customerId)
+        && data.type in ['quote_access', 'system', 'message']
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 160
+        && data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 120
+        && data.customerEmail is string && data.customerEmail.size() >= 3 && data.customerEmail.size() <= 200
+        && data.customerPhone is string && data.customerPhone.size() >= 7 && data.customerPhone.size() <= 30
+        && data.serviceName is string && data.serviceName.size() >= 1 && data.serviceName.size() <= 160
+        && data.propertyAddress is string && data.propertyAddress.size() >= 1 && data.propertyAddress.size() <= 300
+        && (!('squareFootage' in data) || (data.squareFootage is number && data.squareFootage >= 0))
+        && (!('estimatedPrice' in data) || (data.estimatedPrice is number && data.estimatedPrice >= 0))
+        && (!('timestamp' in data) || (data.timestamp is string && data.timestamp.size() <= 40))
+        && data.read is bool
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000))
+        && data.createdAt is timestamp;
+    }
+
+    function isValidDialogueMessage(data) {
+      return data.keys().hasAll([
+          'id', 'threadId', 'customerName', 'senderRole', 'senderName',
+          'message', 'timestamp', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'threadId', 'customerName', 'senderRole', 'senderName',
+          'message', 'timestamp', 'quoteId', 'appointmentId', 'directPrice', 'createdAt'
+        ])
+        && isValidId(data.id)
+        && isValidId(data.threadId)
+        && data.customerName is string && data.customerName.size() >= 1 && data.customerName.size() <= 120
+        && data.senderRole in ['client', 'admin', 'technician']
+        && data.senderName is string && data.senderName.size() >= 1 && data.senderName.size() <= 120
+        && data.message is string && data.message.size() >= 1 && data.message.size() <= 2000
+        && data.timestamp is string && data.timestamp.size() >= 1 && data.timestamp.size() <= 40
+        && (!('quoteId' in data) || isValidId(data.quoteId))
+        && (!('appointmentId' in data) || isValidId(data.appointmentId))
+        && (!('directPrice' in data) || (data.directPrice is number && data.directPrice >= 0))
+        && data.createdAt is timestamp;
+    }
+
+    // 4. Collection Rules
+
+    // Customers: Private PII strictly isolated to owning UID or Admin
+    match /customers/{customerId} {
+      allow get: if isValidId(customerId) && isSignedIn() && (request.auth.uid == customerId || isAdmin());
+      allow list: if isBootstrappedAdmin();
+
+      allow create: if isValidId(customerId)
+        && isVerifiedEmail()
+        && isValidCustomer(incoming())
+        && (request.auth.uid == customerId || isAdmin())
+        && incoming().uid == customerId
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(customerId)
+        && isVerifiedEmail()
+        && isValidCustomer(incoming())
+        && incoming().uid == existing().uid
+        && incoming().role == existing().role
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'email', 'phone', 'address', 'notes', 'updatedAt'])
+        && (request.auth.uid == customerId || isAdmin());
+
+      allow delete: if isValidId(customerId) && isBootstrappedAdmin();
+    }
+
+    // Admins Directory: Strictly protected
+    match /admins/{adminId} {
+      allow get: if isValidId(adminId) && isSignedIn() && (request.auth.uid == adminId || isBootstrappedAdmin());
+      allow list: if isBootstrappedAdmin();
+      allow create, update: if isValidId(adminId) && isBootstrappedAdmin() && isValidAdminUser(incoming());
+      allow delete: if isValidId(adminId) && isBootstrappedAdmin();
+    }
+
+    // Blocked Slots: Publicly readable (no PII) so booking UI disables blocked times immediately; Admin-only write
+    match /blockedSlots/{slotId} {
+      allow get: if isValidId(slotId);
+      allow list: if true;
+
+      allow create: if isValidId(slotId)
+        && isAdmin()
+        && isValidBlockedSlot(incoming())
+        && incoming().id == slotId
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == request.time;
+
+      allow update: if false;
+      allow delete: if isValidId(slotId) && isAdmin();
+    }
+
+    // Quote Requests: Scoped strictly to owning customer or Admin
+    match /quotes/{quoteId} {
+      allow get: if isValidId(quoteId) && isSignedIn() && (existing().customerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.customerId == request.auth.uid || isBootstrappedAdmin());
+
+      allow create: if isValidId(quoteId)
+        && isVerifiedEmail()
+        && isValidQuote(incoming())
+        && incoming().id == quoteId
+        && (incoming().customerId == request.auth.uid || isAdmin())
+        && incoming().status == 'new'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(quoteId)
+        && isVerifiedEmail()
+        && isValidQuote(incoming())
+        && incoming().id == existing().id
+        && incoming().customerId == existing().customerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && isAdmin()
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'estimatedPrice', 'adminNotes', 'updatedAt']);
+
+      allow delete: if isValidId(quoteId) && isAdmin();
+    }
+
+    // Appointments & Service History: Scoped strictly to owning customer or Admin
+    match /appointments/{appointmentId} {
+      allow get: if isValidId(appointmentId) && isSignedIn() && (existing().customerId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.customerId == request.auth.uid || isBootstrappedAdmin());
+
+      allow create: if isValidId(appointmentId)
+        && isVerifiedEmail()
+        && isValidAppointment(incoming())
+        && incoming().id == appointmentId
+        && (incoming().customerId == request.auth.uid || isAdmin())
+        && incoming().status == 'scheduled'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(appointmentId)
+        && isVerifiedEmail()
+        && isValidAppointment(incoming())
+        && incoming().id == existing().id
+        && incoming().customerId == existing().customerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Tier 1: Admin dispatch updates (including terminal correction override)
+          (
+            isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'scheduledDate', 'scheduledTime', 'technicianId', 'technicianName',
+              'status', 'notes', 'technicianNotes', 'price', 'paymentStatus',
+              'paymentMethod', 'paidAt', 'completedAt', 'cancellationReason', 'updatedAt'
+            ])
+          )
+          ||
+          // Tier 2: Owning customer can reschedule or cancel ONLY while not completed
+          (
+            existing().customerId == request.auth.uid &&
+            existing().status != 'completed' &&
+            incoming().price == existing().price &&
+            incoming().paymentStatus == existing().paymentStatus &&
+            (
+              (incoming().status == existing().status &&
+               incoming().diff(existing()).affectedKeys().hasOnly(['scheduledDate', 'scheduledTime', 'notes', 'updatedAt'])) ||
+              (incoming().status == 'cancelled' &&
+               incoming().diff(existing()).affectedKeys().hasOnly(['status', 'cancellationReason', 'updatedAt']))
+            )
+          )
+        );
+
+      allow delete: if isValidId(appointmentId) && isAdmin();
+    }
+
+    // Payments Ledger: Strictly Admin-only
+    match /payments/{paymentId} {
+      allow get: if isValidId(paymentId) && isAdmin();
+      allow list: if isBootstrappedAdmin();
+      allow create: if isValidId(paymentId)
+        && isAdmin()
+        && isValidPayment(incoming())
+        && incoming().id == paymentId
+        && incoming().createdAt == request.time;
+      allow update: if false;
+      allow delete: if isValidId(paymentId) && isAdmin();
+    }
+
+    // Admin Notifications: Customers can trigger alerts on quote submit; only Admin reads/manages
+    match /adminNotifications/{notificationId} {
+      allow get: if isValidId(notificationId) && isAdmin();
+      allow list: if isBootstrappedAdmin();
+      allow create: if isValidId(notificationId)
+        && isVerifiedEmail()
+        && isValidAdminNotification(incoming())
+        && incoming().id == notificationId
+        && incoming().customerId == request.auth.uid
+        && incoming().read == false
+        && incoming().createdAt == request.time;
+      allow update: if isValidId(notificationId)
+        && isAdmin()
+        && isValidAdminNotification(incoming())
+        && incoming().id == existing().id
+        && incoming().createdAt == existing().createdAt
+        && incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+      allow delete: if isValidId(notificationId) && isAdmin();
+    }
+
+    // Dialogue Messages: Thread scoped to customer UID or Admin
+    match /dialogueMessages/{messageId} {
+      allow get: if isValidId(messageId) && isSignedIn() && (existing().threadId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.threadId == request.auth.uid || isBootstrappedAdmin());
+      allow create: if isValidId(messageId)
+        && isVerifiedEmail()
+        && isValidDialogueMessage(incoming())
+        && incoming().id == messageId
+        && incoming().createdAt == request.time
+        && (
+          (incoming().threadId == request.auth.uid && incoming().senderRole == 'client') ||
+          isAdmin()
+        );
+      allow update, delete: if isValidId(messageId) && isAdmin();
+    }
+  }
+}
