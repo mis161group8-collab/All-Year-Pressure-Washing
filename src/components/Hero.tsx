@@ -1,6 +1,6 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
-import { HERO_IMAGE, CONTACT_INFO } from '../data/initialData';
+import { CONTACT_INFO } from '../data/initialData';
 import { Calendar, FileText, Phone, Star, MapPin } from 'lucide-react';
 
 export const Hero: React.FC = () => {
@@ -18,7 +18,7 @@ export const Hero: React.FC = () => {
       {/* Full-width hero image showing professional exterior pressure washing with semi-transparency */}
       <div className="absolute inset-0 z-0">
         <img
-          src={HERO_IMAGE}
+          src="/assets/aistudio/Pressure_Wash_1_493568ca.jpg"
           alt="Professional exterior pressure washing service in Sacramento"
           className="w-full h-full object-cover object-center opacity-85 scale-102"
           referrerPolicy="no-referrer"

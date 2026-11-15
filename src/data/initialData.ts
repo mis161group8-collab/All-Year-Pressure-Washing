@@ -19,10 +19,10 @@ export const PATIO_IMAGE = '/src/assets/images/service_patio_driveway_1791508411
 export const BEFORE_AFTER_IMAGE = '/src/assets/images/before_after_cleaning_1791509615681.jpg';
 
 // Professional Category Photographs (No icons/symbols)
-export const DRIVEWAY_CATEGORY_IMAGE = '/src/assets/images/driveway_cleaning_1793748397503.jpg';
-export const HOUSE_CATEGORY_IMAGE = '/src/assets/images/house_siding_wash_1793748410192.jpg';
-export const WINDOWS_CATEGORY_IMAGE = '/src/assets/images/windows_solar_wash_1793748423354.jpg';
-export const COMMERCIAL_CATEGORY_IMAGE = '/src/assets/images/commercial_equipment_wash_1793748435694.jpg';
+export const DRIVEWAY_CATEGORY_IMAGE = '/assets/aistudio/pressure_wash_4_iii__9399e1af.png';
+export const HOUSE_CATEGORY_IMAGE = '/assets/aistudio/pressure_wash__3iii__8098026d.png';
+export const WINDOWS_CATEGORY_IMAGE = '/assets/aistudio/MIS161_before_after_88aff7c1.jpg';
+export const COMMERCIAL_CATEGORY_IMAGE = '/assets/aistudio/pressure_wash_5_ii__cd3b623b.png';
 
 export const OFFICIAL_LOGO = '/assets/aistudio/MIS161_logo_6e549ad0.jpg';
 export const OFFICIAL_BEFORE_AFTER = '/assets/aistudio/MIS161_before_after_88aff7c1.jpg';
