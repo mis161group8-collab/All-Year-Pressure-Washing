@@ -3,6 +3,8 @@ import {
   User,
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut
 } from 'firebase/auth';
 import {
@@ -21,6 +23,7 @@ import {
   auth,
   db,
   googleProvider,
+  popupResolver,
   ADMIN_EMAIL,
   OperationType,
   handleFirestoreError
@@ -87,6 +90,8 @@ interface AppContextType {
   profileLoading: boolean;
   authError: string | null;
   clearAuthError: () => void;
+  firestoreError: string | null;
+  clearFirestoreError: () => void;
   signInWithGoogle: (expectedRole?: 'customer' | 'admin') => Promise<{ success: boolean; error?: string }>;
   signOutUser: () => Promise<void>;
 
@@ -241,6 +246,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [customerProfileExists, setCustomerProfileExists] = useState<boolean>(false);
   const [profileLoading, setProfileLoading] = useState<boolean>(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [firestoreError, setFirestoreError] = useState<string | null>(null);
 
   const [currentRole, setCurrentRole] = useState<UserRole>('customer');
   const [currentUser, setCurrentUser] = useState<UserProfile>(GUEST_USER);
@@ -284,14 +290,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const clearAuthError = () => setAuthError(null);
+  const clearFirestoreError = () => setFirestoreError(null);
+
+  const reportListenerError = (error: unknown, operationType: OperationType, path: string): never => {
+    const rawMsg = error instanceof Error ? error.message : String(error);
+    const code = (error as { code?: string })?.code || '';
+    if (code === 'permission-denied' || rawMsg.includes('Missing or insufficient permissions')) {
+      setFirestoreError(
+        `Database permission error while reading "${path}". Make sure you are signed in with an authorized, email-verified Google account.`
+      );
+    } else if (rawMsg.includes('Quota exceeded') || code === 'resource-exhausted') {
+      setFirestoreError(
+        'Daily free-tier Firestore database quota was reached. Quota resets tomorrow, or you can upgrade the Firebase plan.'
+      );
+    } else if (code === 'unavailable' || rawMsg.includes('offline')) {
+      setFirestoreError(
+        'Could not reach the Firestore database. Please check your internet connection and refresh the page.'
+      );
+    } else {
+      setFirestoreError(`Database connection error (${path}): ${rawMsg}`);
+    }
+    return handleFirestoreError(error, operationType, path);
+  };
 
   // 1. Auth State Listener
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setFirebaseUser(user);
       setAuthError(null);
+      setFirestoreError(null);
 
       if (!user) {
+        setFirebaseUser(null);
         setIsAdminAuthorized(false);
         setCustomerProfileExists(false);
         setCurrentUser(GUEST_USER);
@@ -302,14 +331,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setAdminNotifications([]);
         setDialogueMessages([]);
         setActiveDialogueThreadId('');
-        if (currentRole === 'admin') {
-          setCurrentRole('customer');
-        }
+        setCurrentRole((prev) => (prev === 'admin' ? 'customer' : prev));
         setAuthReady(true);
         return;
       }
 
-      // Check real admin authorization
+      // Check real admin authorization BEFORE publishing firebaseUser so scoped listeners match the right role immediately
       let adminStatus = Boolean(user.emailVerified && user.email?.toLowerCase() === ADMIN_EMAIL);
       if (!adminStatus && user.emailVerified) {
         try {
@@ -324,11 +351,76 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       setIsAdminAuthorized(adminStatus);
+      setFirebaseUser(user);
       setActiveDialogueThreadId(user.uid);
       setAuthReady(true);
     });
 
     return () => unsubscribe();
+  }, []);
+
+  // 1b. Complete Google Sign-In if returning from a redirect fallback (e.g. on browsers blocking popups)
+  useEffect(() => {
+    let active = true;
+    const checkRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth, popupResolver);
+        if (!active || !result) return;
+
+        const pendingRole = sessionStorage.getItem('aypw_pending_auth_role');
+        const pendingView = sessionStorage.getItem('aypw_pending_auth_view') as AppViewMode | null;
+        sessionStorage.removeItem('aypw_pending_auth_role');
+        sessionStorage.removeItem('aypw_pending_auth_view');
+
+        if (pendingView) {
+          setActiveView(pendingView);
+        }
+
+        const signedUser = result.user;
+        if (pendingRole === 'admin') {
+          let isAdmin = Boolean(signedUser.emailVerified && signedUser.email?.toLowerCase() === ADMIN_EMAIL);
+          if (!isAdmin && signedUser.emailVerified) {
+            try {
+              const adminDoc = await getDoc(doc(db, 'admins', signedUser.uid));
+              if (adminDoc.exists() && adminDoc.data()?.role === 'admin') {
+                isAdmin = true;
+              }
+            } catch {
+              isAdmin = false;
+            }
+          }
+          if (!isAdmin) {
+            const msg = `Access denied: ${signedUser.email || 'This account'} is not authorized for Administrator access.`;
+            setAuthError(msg);
+            addToast(msg, 'error');
+            return;
+          }
+          setCurrentRole('admin');
+          addToast('Administrator authenticated successfully.', 'success');
+        } else {
+          setCurrentRole('customer');
+          addToast(`Signed in as ${signedUser.email}`, 'success');
+        }
+      } catch (error) {
+        if (!active) return;
+        sessionStorage.removeItem('aypw_pending_auth_role');
+        sessionStorage.removeItem('aypw_pending_auth_view');
+        const code = (error as { code?: string })?.code || '';
+        const rawMsg = error instanceof Error ? error.message : 'Google Sign-In failed.';
+        const hostname = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
+        const friendlyMsg =
+          code === 'auth/unauthorized-domain' || rawMsg.includes('auth/unauthorized-domain')
+            ? `This website domain (${hostname}) is not authorized in Firebase Authentication yet. Add "${hostname}" in Firebase Console → Authentication → Settings → Authorized domains, then try signing in again.`
+            : rawMsg;
+        setAuthError(friendlyMsg);
+        addToast(friendlyMsg, 'error');
+      }
+    };
+
+    void checkRedirect();
+    return () => {
+      active = false;
+    };
   }, []);
 
   // 2. Public listener for Blocked Slots (No PII — powers booking calendar availability immediately)
@@ -349,7 +441,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setBlockedSlots(list);
       },
       (error) => {
-        handleFirestoreError(error, OperationType.LIST, path);
+        reportListenerError(error, OperationType.LIST, path);
       }
     );
     return () => unsubscribe();
@@ -399,7 +491,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         },
         (error) => {
           setProfileLoading(false);
-          handleFirestoreError(error, OperationType.GET, profilePath);
+          reportListenerError(error, OperationType.GET, profilePath);
         }
       )
     );
@@ -425,7 +517,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               })
             );
           },
-          (error) => handleFirestoreError(error, OperationType.LIST, 'customers')
+          (error) => reportListenerError(error, OperationType.LIST, 'customers')
         )
       );
 
@@ -445,7 +537,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               })
             );
           },
-          (error) => handleFirestoreError(error, OperationType.LIST, 'quotes')
+          (error) => reportListenerError(error, OperationType.LIST, 'quotes')
         )
       );
 
@@ -460,7 +552,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }))
             );
           },
-          (error) => handleFirestoreError(error, OperationType.LIST, 'appointments')
+          (error) => reportListenerError(error, OperationType.LIST, 'appointments')
         )
       );
 
@@ -475,7 +567,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }))
             );
           },
-          (error) => handleFirestoreError(error, OperationType.LIST, 'payments')
+          (error) => reportListenerError(error, OperationType.LIST, 'payments')
         )
       );
 
@@ -490,7 +582,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }))
             );
           },
-          (error) => handleFirestoreError(error, OperationType.LIST, 'adminNotifications')
+          (error) => reportListenerError(error, OperationType.LIST, 'adminNotifications')
         )
       );
 
@@ -505,7 +597,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }))
             );
           },
-          (error) => handleFirestoreError(error, OperationType.LIST, 'dialogueMessages')
+          (error) => reportListenerError(error, OperationType.LIST, 'dialogueMessages')
         )
       );
     } else {
@@ -531,7 +623,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               })
             );
           },
-          (error) => handleFirestoreError(error, OperationType.LIST, 'quotes')
+          (error) => reportListenerError(error, OperationType.LIST, 'quotes')
         )
       );
 
@@ -547,7 +639,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }))
             );
           },
-          (error) => handleFirestoreError(error, OperationType.LIST, 'appointments')
+          (error) => reportListenerError(error, OperationType.LIST, 'appointments')
         )
       );
 
@@ -563,7 +655,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               }))
             );
           },
-          (error) => handleFirestoreError(error, OperationType.LIST, 'dialogueMessages')
+          (error) => reportListenerError(error, OperationType.LIST, 'dialogueMessages')
         )
       );
     }
@@ -577,9 +669,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const signInWithGoogle = async (
     expectedRole: 'customer' | 'admin' = 'customer'
   ): Promise<{ success: boolean; error?: string }> => {
-    setAuthError(null);
     try {
-      const cred = await signInWithPopup(auth, googleProvider);
+      // Trigger signInWithPopup immediately on the click stack before any React state updates
+      // so browsers preserve transient user activation and do not block the popup.
+      const popupPromise = signInWithPopup(auth, googleProvider, popupResolver);
+      setAuthError(null);
+      const cred = await popupPromise;
       const signedUser = cred.user;
 
       if (expectedRole === 'admin') {
@@ -609,10 +704,56 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addToast(`Signed in as ${signedUser.email}`, 'success');
       return { success: true };
     } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Authentication cancelled or rejected.';
-      setAuthError(msg);
-      addToast(msg, 'error');
-      return { success: false, error: msg };
+      const code = (error as { code?: string })?.code || '';
+      const rawMsg = error instanceof Error ? error.message : 'Authentication cancelled or rejected.';
+      const hostname = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
+      const isTopLevelWindow = typeof window !== 'undefined' && window.self === window.top;
+
+      // On standalone top-level deployments (such as Vercel), fall back to redirect sign-in
+      // if the browser or an extension blocks the popup window.
+      if ((code === 'auth/popup-blocked' || rawMsg.includes('auth/popup-blocked')) && isTopLevelWindow) {
+        try {
+          sessionStorage.setItem('aypw_pending_auth_role', expectedRole);
+          sessionStorage.setItem(
+            'aypw_pending_auth_view',
+            expectedRole === 'admin' ? 'admin_dashboard' : 'customer_portal'
+          );
+          await signInWithRedirect(auth, googleProvider, popupResolver);
+          return { success: true };
+        } catch (redirectError) {
+          sessionStorage.removeItem('aypw_pending_auth_role');
+          sessionStorage.removeItem('aypw_pending_auth_view');
+          const redirectMsg =
+            redirectError instanceof Error
+              ? redirectError.message
+              : 'Your browser blocked the Google Sign-In popup. Please allow popups for this website and click Sign In again.';
+          setAuthError(redirectMsg);
+          addToast(redirectMsg, 'error');
+          return { success: false, error: redirectMsg };
+        }
+      }
+
+      let friendlyMsg = rawMsg;
+
+      if (code === 'auth/unauthorized-domain' || rawMsg.includes('auth/unauthorized-domain')) {
+        friendlyMsg = `This website domain (${hostname}) is not authorized in Firebase Authentication yet. Add "${hostname}" in Firebase Console → Authentication → Settings → Authorized domains, then try signing in again.`;
+      } else if (code === 'auth/popup-blocked' || rawMsg.includes('auth/popup-blocked')) {
+        friendlyMsg = 'Your browser blocked the Google Sign-In popup. Please allow popups for this website and click Sign In again.';
+      } else if (
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request' ||
+        rawMsg.includes('popup-closed-by-user')
+      ) {
+        friendlyMsg = 'Google Sign-In was closed before finishing. Please try again.';
+      } else if (code === 'auth/operation-not-allowed') {
+        friendlyMsg = 'Google Sign-In is not enabled in Firebase Console → Authentication → Sign-in method.';
+      } else if (code === 'auth/network-request-failed') {
+        friendlyMsg = 'Network error while connecting to Google Sign-In. Please check your internet connection or ad-blocker and try again.';
+      }
+
+      setAuthError(friendlyMsg);
+      addToast(friendlyMsg, 'error');
+      return { success: false, error: friendlyMsg };
     }
   };
 
@@ -916,7 +1057,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       id: notifId,
       customerId: firebaseUser.uid,
       type: 'quote_access',
-      title: `Quote Access Request: ${quoteData.serviceName}`,
+      title: `Quote Access Request: ${quoteData.serviceName}`.slice(0, 160),
       customerName: quoteData.customerName.slice(0, 120),
       customerEmail: quoteData.email.slice(0, 200),
       customerPhone: quoteData.phone.slice(0, 30),
@@ -1364,7 +1505,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const customerRef = doc(db, 'customers', uid);
 
     try {
-      if (customerProfileExists) {
+      const existingSnap = await getDoc(customerRef);
+      if (existingSnap.exists() || customerProfileExists) {
         await updateDoc(customerRef, {
           name: name.slice(0, 120),
           email: email.slice(0, 200),
@@ -1373,6 +1515,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           notes: notes.slice(0, 1000),
           updatedAt: serverTimestamp()
         });
+        setCustomerProfileExists(true);
         addToast('Your profile information was updated successfully!', 'success');
       } else {
         await setDoc(customerRef, {
@@ -1507,6 +1650,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         profileLoading,
         authError,
         clearAuthError,
+        firestoreError,
+        clearFirestoreError,
         signInWithGoogle,
         signOutUser,
         currentRole,

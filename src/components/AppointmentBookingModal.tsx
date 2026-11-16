@@ -110,6 +110,11 @@ export const AppointmentBookingModal: React.FC = () => {
       return;
     }
 
+    if (!customerPhone.trim() || customerPhone.replace(/\D/g, '').length < 7) {
+      setBookingError('Please provide a valid phone number (at least 7 digits).');
+      return;
+    }
+
     if (!selectedTime) {
       setBookingError('No available arrival windows on the selected date. Please pick another date.');
       return;

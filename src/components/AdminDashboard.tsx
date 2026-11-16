@@ -37,7 +37,8 @@ export const AdminDashboard: React.FC = () => {
     authReady,
     isAdminAuthorized,
     authError,
-    clearAuthError,
+    firestoreError,
+    clearFirestoreError,
     signInWithGoogle,
     signOutUser,
     setActiveView,
@@ -322,10 +323,7 @@ export const AdminDashboard: React.FC = () => {
           <div className="space-y-2.5">
             <button
               type="button"
-              onClick={() => {
-                clearAuthError();
-                void signInWithGoogle('admin');
-              }}
+              onClick={() => void signInWithGoogle('admin')}
               className="btn-rounded w-full py-3 px-6 bg-[#263F50] hover:bg-[#1A2E3D] text-white font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
             >
               <LogIn className="w-4 h-4" />
@@ -425,6 +423,25 @@ export const AdminDashboard: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {firestoreError && (
+        <div className="mt-6 p-4 rounded-2xl bg-rose-50 border border-rose-200 flex items-start justify-between gap-3 text-xs text-rose-800">
+          <div className="flex items-start gap-2.5">
+            <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold">Firebase Connection / Permission Error</div>
+              <div className="mt-0.5">{firestoreError}</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={clearFirestoreError}
+            className="text-[11px] font-semibold text-rose-700 hover:text-rose-900 underline shrink-0 cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* KPI Overview Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 py-6">

@@ -31,7 +31,8 @@ export const CustomerPortal: React.FC = () => {
     customerProfileExists,
     profileLoading,
     authError,
-    clearAuthError,
+    firestoreError,
+    clearFirestoreError,
     signInWithGoogle,
     signOutUser,
     currentUser,
@@ -89,18 +90,23 @@ export const CustomerPortal: React.FC = () => {
     e.preventDefault();
     setProfileError(null);
     setSavingProfile(true);
-    const res = await updateCustomerProfile({
-      name: profileName,
-      email: profileEmail,
-      phone: profilePhone,
-      address: profileAddress,
-      notes: profileNotes
-    });
-    setSavingProfile(false);
-    if (res.success) {
-      setIsEditingProfile(false);
-    } else {
-      setProfileError(res.error || 'Could not save customer profile.');
+    try {
+      const res = await updateCustomerProfile({
+        name: profileName,
+        email: profileEmail,
+        phone: profilePhone,
+        address: profileAddress,
+        notes: profileNotes
+      });
+      if (res.success) {
+        setIsEditingProfile(false);
+      } else {
+        setProfileError(res.error || 'Could not save customer profile.');
+      }
+    } catch (err) {
+      setProfileError(err instanceof Error ? err.message : 'Could not save customer profile.');
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -137,10 +143,7 @@ export const CustomerPortal: React.FC = () => {
 
           <button
             type="button"
-            onClick={() => {
-              clearAuthError();
-              void signInWithGoogle('customer');
-            }}
+            onClick={() => void signInWithGoogle('customer')}
             className="btn-rounded w-full py-3 px-6 bg-[#263F50] hover:bg-[#1A2E3D] text-white font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
           >
             <LogIn className="w-4 h-4" />
@@ -227,6 +230,25 @@ export const CustomerPortal: React.FC = () => {
           </button>
         </div>
       </div>
+
+      {firestoreError && (
+        <div className="mt-6 p-4 rounded-2xl bg-rose-50 border border-rose-200 flex items-start justify-between gap-3 text-xs text-rose-800">
+          <div className="flex items-start gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold">Firebase Connection / Permission Error</div>
+              <div className="mt-0.5">{firestoreError}</div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={clearFirestoreError}
+            className="text-[11px] font-semibold text-rose-700 hover:text-rose-900 underline shrink-0 cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Prompt to Create Customer Profile if not yet created */}
       {!profileLoading && !customerProfileExists && activeTab !== 'profile' && (
