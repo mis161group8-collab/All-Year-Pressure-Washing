@@ -24,22 +24,12 @@ import {
   Mail,
   Search,
   History,
-  X,
-  LogOut,
-  ShieldAlert
+  X
 } from 'lucide-react';
 import { Appointment, QuoteRequest, UserProfile } from '../types';
-import { AuthCard, EmailVerificationBanner } from './AuthCard';
 
 export const AdminDashboard: React.FC = () => {
   const {
-    firebaseUser,
-    authReady,
-    isAdminAuthorized,
-    firestoreError,
-    clearFirestoreError,
-    signOutUser,
-    setActiveView,
     quotes,
     updateQuoteStatus,
     convertQuoteToAppointment,
@@ -286,71 +276,6 @@ export const AdminDashboard: React.FC = () => {
     setPayNotes('');
   };
 
-  // Administrator Authentication & Authorization Gate
-  if (!authReady) {
-    return (
-      <div className="py-16 max-w-xl mx-auto px-4 text-center text-[#555555] text-sm">
-        Verifying administrator session...
-      </div>
-    );
-  }
-
-  if (!firebaseUser) {
-    return (
-      <AuthCard
-        portalType="admin"
-        badgeText="Protected Console · Admin Login Required"
-        title="Administrator Sign-In"
-        description="Sign in with your authorized administrator account to access customer records, dispatch schedules, blocked time slots, and financial ledgers."
-        googleButtonLabel="Continue with Google"
-        onBackHome={() => setActiveView('home')}
-      />
-    );
-  }
-
-  if (!isAdminAuthorized) {
-    return (
-      <div className="py-16 max-w-lg mx-auto px-4 sm:px-6 text-[#222222]">
-        <div className="bg-white rounded-3xl p-8 border border-rose-200 shadow-sm text-center space-y-5">
-          <div className="w-14 h-14 rounded-2xl bg-rose-50 text-rose-600 mx-auto flex items-center justify-center border border-rose-200">
-            <ShieldAlert className="w-7 h-7" />
-          </div>
-          <div className="space-y-2">
-            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-rose-50 text-rose-700 border border-rose-200">
-              Unauthorized Account
-            </span>
-            <h1 className="text-2xl font-bold text-[#222222]">Administrator Access Denied</h1>
-            <p className="text-xs sm:text-sm text-[#555555] leading-relaxed">
-              The signed-in account (<strong>{firebaseUser.email}</strong>) does not have verified administrator privileges. Customer accounts cannot access dispatch, financial, or CRM records.
-            </p>
-          </div>
-
-          <div className="text-left">
-            <EmailVerificationBanner compact />
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-2.5 pt-1">
-            <button
-              type="button"
-              onClick={() => void signOutUser()}
-              className="btn-rounded flex-1 py-2.5 px-4 bg-[#263F50] hover:bg-[#1A2E3D] text-white font-semibold text-xs flex items-center justify-center gap-1.5 cursor-pointer"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-              <span>Sign Out &amp; Switch Account</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveView('customer_portal')}
-              className="btn-rounded flex-1 py-2.5 px-4 bg-[#E8EEF1] hover:bg-[#DCE5EA] text-[#263F50] font-semibold text-xs cursor-pointer"
-            >
-              Go to Customer Portal
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="py-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-[#222222]">
       {/* Top Header */}
@@ -358,7 +283,7 @@ export const AdminDashboard: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#E8EEF1] text-[#263F50] border border-[#d2dce2]">
-              Admin Operations Console
+              Admin Operations Console · Classroom Demonstration (Fictional Data)
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-[#222222] mt-1">
@@ -369,12 +294,8 @@ export const AdminDashboard: React.FC = () => {
           </p>
         </div>
 
-        {/* Security badge, admin email & sign out */}
+        {/* Security MFA Badge */}
         <div className="flex flex-wrap items-center gap-2.5">
-          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#E8EEF1] text-xs font-semibold bg-white text-[#222222]">
-            <ShieldCheck className="w-3.5 h-3.5 text-[#263F50]" />
-            <span className="truncate max-w-[180px]">{firebaseUser.email}</span>
-          </div>
           <button
             onClick={() => setActiveTab('security')}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#E8EEF1] text-xs font-bold bg-white text-[#263F50] hover:bg-[#E8EEF1] shadow-xs transition-colors cursor-pointer"
@@ -382,35 +303,8 @@ export const AdminDashboard: React.FC = () => {
             <Lock className="w-3.5 h-3.5 text-[#263F50]" />
             <span>MFA: {currentUser.mfaEnabled ? 'Protected' : 'Disabled'}</span>
           </button>
-          <button
-            type="button"
-            onClick={() => void signOutUser()}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#E8EEF1] text-xs font-bold bg-white text-[#263F50] hover:bg-[#E8EEF1] shadow-xs transition-colors cursor-pointer"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>Sign Out</span>
-          </button>
         </div>
       </div>
-
-      {firestoreError && (
-        <div className="mt-6 p-4 rounded-2xl bg-rose-50 border border-rose-200 flex items-start justify-between gap-3 text-xs text-rose-800">
-          <div className="flex items-start gap-2.5">
-            <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-            <div>
-              <div className="font-bold">Firebase Connection / Permission Error</div>
-              <div className="mt-0.5">{firestoreError}</div>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={clearFirestoreError}
-            className="text-[11px] font-semibold text-rose-700 hover:text-rose-900 underline shrink-0 cursor-pointer"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
 
       {/* KPI Overview Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 py-6">
@@ -555,7 +449,7 @@ export const AdminDashboard: React.FC = () => {
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white border border-slate-200 text-xs text-slate-700 shadow-xs">
                 <Mail className="w-3.5 h-3.5 text-cyan-600" />
-                <span>Email Target: <strong className="text-slate-900">mis161group8@gmail.com</strong></span>
+                <span>Email Target: <strong className="text-slate-900">dispatch.demo@example.com (Classroom Demo)</strong></span>
               </div>
             </div>
           </div>
@@ -1055,7 +949,7 @@ export const AdminDashboard: React.FC = () => {
                   </>
                 ) : (
                   <p className="text-xs text-[#555555]">
-                    Customer profiles created by signed-in users will appear here automatically.
+                    No fictional customer records found.
                   </p>
                 )}
               </div>

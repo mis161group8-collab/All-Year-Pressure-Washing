@@ -5,15 +5,12 @@ import {
   X,
   Calendar,
   MessageSquare,
-  Phone,
-  LogOut
+  Phone
 } from 'lucide-react';
 import { CONTACT_INFO } from '../data/initialData';
 
 export const Navbar: React.FC = () => {
   const {
-    firebaseUser,
-    signOutUser,
     currentRole,
     activeView,
     setActiveView,
@@ -102,18 +99,6 @@ export const Navbar: React.FC = () => {
                 )}
               </button>
             </div>
-
-            {firebaseUser && (
-              <button
-                type="button"
-                onClick={() => void signOutUser()}
-                className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-[#D5E0E6] bg-white hover:bg-[#E8EEF1] text-[10px] font-semibold text-[#263F50] cursor-pointer"
-                title={`Signed in as ${firebaseUser.email} — Click to sign out`}
-              >
-                <LogOut className="w-2.5 h-2.5" />
-                <span>Sign Out</span>
-              </button>
-            )}
 
             {/* Transcripts drawer button */}
             <button

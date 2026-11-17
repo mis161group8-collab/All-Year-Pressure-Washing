@@ -1,39 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import {
-  User,
-  onAuthStateChanged,
-  signInWithPopup,
-  signInWithRedirect,
-  getRedirectResult,
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
-  sendEmailVerification,
-  sendPasswordResetEmail,
-  updateProfile,
-  signOut
-} from 'firebase/auth';
-import {
-  collection,
-  doc,
-  getDoc,
-  setDoc,
-  updateDoc,
-  deleteDoc,
-  onSnapshot,
-  query,
-  where,
-  serverTimestamp
-} from 'firebase/firestore';
-import {
-  auth,
-  db,
-  googleProvider,
-  popupResolver,
-  ADMIN_EMAIL,
-  OperationType,
-  handleFirestoreError
-} from '../firebase';
-import {
   UserRole,
   UserProfile,
   ServiceItem,
@@ -51,10 +17,18 @@ import {
 } from '../types';
 import {
   INITIAL_SERVICES,
+  INITIAL_CUSTOMERS,
   INITIAL_TECHNICIANS,
+  INITIAL_ADMIN,
+  INITIAL_QUOTES,
+  INITIAL_APPOINTMENTS,
+  INITIAL_BLOCKED_SLOTS,
+  INITIAL_PAYMENTS,
   INITIAL_SERVICE_AREAS,
   INITIAL_REVIEWS,
   CLEANING_SUPPLIES,
+  INITIAL_DIALOGUE,
+  INITIAL_ADMIN_NOTIFICATIONS,
   SACRAMENTO_LOCATION,
   VISIT_FEE_POLICY,
   YELP_PROFILE_URL
@@ -75,57 +49,54 @@ export type AppViewMode =
   | 'tech_portal'
   | 'admin_dashboard';
 
-const GUEST_USER: UserProfile = {
-  id: '',
-  name: '',
-  email: '',
-  phone: '',
-  address: '',
-  role: 'customer',
-  notes: '',
-  mfaEnabled: false
-};
+const STORAGE_KEYS = {
+  CUSTOMERS: 'aypw_demo_customers_v1',
+  QUOTES: 'aypw_demo_quotes_v1',
+  APPOINTMENTS: 'aypw_demo_appointments_v1',
+  BLOCKED_SLOTS: 'aypw_demo_blocked_slots_v1',
+  PAYMENTS: 'aypw_demo_payments_v1',
+  DIALOGUE: 'aypw_demo_dialogue_v1',
+  NOTIFICATIONS: 'aypw_demo_notifications_v1',
+  REVIEWS: 'aypw_demo_reviews_v1',
+  ACTIVE_CUSTOMER_ID: 'aypw_demo_active_customer_id_v1',
+  ADMIN_MFA: 'aypw_demo_admin_mfa_v1'
+} as const;
+
+function readFromStorage<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeToStorage<T>(key: string, value: T): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Ignore storage quota errors in classroom demo mode
+  }
+}
 
 interface AppContextType {
-  // Real Firebase Auth & RBAC
-  firebaseUser: User | null;
-  authReady: boolean;
-  isEmailVerified: boolean;
-  isAdminAuthorized: boolean;
-  customerProfileExists: boolean;
-  profileLoading: boolean;
-  authError: string | null;
-  clearAuthError: () => void;
-  firestoreError: string | null;
-  clearFirestoreError: () => void;
-  signInWithGoogle: (expectedRole?: 'customer' | 'admin' | 'technical') => Promise<{ success: boolean; error?: string }>;
-  signInWithEmail: (
-    email: string,
-    password: string,
-    expectedRole?: 'customer' | 'admin' | 'technical'
-  ) => Promise<{ success: boolean; error?: string; needsVerification?: boolean }>;
-  createAccountWithEmail: (
-    name: string,
-    email: string,
-    password: string,
-    expectedRole?: 'customer' | 'admin' | 'technical'
-  ) => Promise<{ success: boolean; error?: string; needsVerification?: boolean; message?: string }>;
-  resendVerificationEmail: () => Promise<{ success: boolean; error?: string; message?: string }>;
-  refreshAuthUser: () => Promise<{ verified: boolean; isAdmin: boolean }>;
-  sendPasswordReset: (email: string) => Promise<{ success: boolean; error?: string; message?: string }>;
-  signOutUser: () => Promise<void>;
-
-  // Current session & view state
+  // Current session & view state (Local Classroom Demo)
   currentRole: UserRole;
   setRole: (role: UserRole) => void;
   currentUser: UserProfile;
   setCurrentUser: (user: UserProfile) => void;
+  activeCustomerId: string;
+  setActiveCustomerId: (id: string) => void;
   selectedTechnicianId: string;
   setSelectedTechnicianId: (id: string) => void;
   mfaModalOpen: boolean;
   setMfaModalOpen: (open: boolean) => void;
   toggleAdminMFA: (enable: boolean) => void;
   adminAuthenticated: boolean;
+  adminProfile: UserProfile;
 
   // Dedicated Views: Client, Technical, Admin
   switchToDedicatedView: (mode: 'client' | 'technical' | 'admin') => void;
@@ -135,7 +106,7 @@ interface AppContextType {
   visitFeePolicy: typeof VISIT_FEE_POLICY;
   yelpProfileUrl: string;
 
-  // Data entities (Firestore-backed where persistent/PII)
+  // Data entities (localStorage-persisted fictional test data)
   services: ServiceItem[];
   customers: UserProfile[];
   technicians: FieldTechnician[];
@@ -242,16 +213,6 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const sanitizeForFirestore = (obj: Record<string, unknown>): Record<string, unknown> => {
-  const clean: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(obj)) {
-    if (v !== undefined) {
-      clean[k] = v;
-    }
-  }
-  return clean;
-};
-
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [services] = useState<ServiceItem[]>(INITIAL_SERVICES);
   const [serviceAreas] = useState<ServiceArea[]>(INITIAL_SERVICE_AREAS);
@@ -259,30 +220,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [technicians] = useState<FieldTechnician[]>(INITIAL_TECHNICIANS);
   const [selectedTechnicianId, setSelectedTechnicianId] = useState<string>('tech-1');
 
-  // Firebase Auth states
-  const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
-  const [authReady, setAuthReady] = useState<boolean>(false);
-  const [isEmailVerified, setIsEmailVerified] = useState<boolean>(false);
-  const [isAdminAuthorized, setIsAdminAuthorized] = useState<boolean>(false);
-  const [customerProfileExists, setCustomerProfileExists] = useState<boolean>(false);
-  const [profileLoading, setProfileLoading] = useState<boolean>(false);
-  const [authError, setAuthError] = useState<string | null>(null);
-  const [firestoreError, setFirestoreError] = useState<string | null>(null);
+  // LocalStorage-backed fictional test collections
+  const [customers, setCustomers] = useState<UserProfile[]>(() =>
+    readFromStorage<UserProfile[]>(STORAGE_KEYS.CUSTOMERS, INITIAL_CUSTOMERS)
+  );
+  const [quotes, setQuotes] = useState<QuoteRequest[]>(() =>
+    readFromStorage<QuoteRequest[]>(STORAGE_KEYS.QUOTES, INITIAL_QUOTES)
+  );
+  const [appointments, setAppointments] = useState<Appointment[]>(() =>
+    readFromStorage<Appointment[]>(STORAGE_KEYS.APPOINTMENTS, INITIAL_APPOINTMENTS)
+  );
+  const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>(() =>
+    readFromStorage<BlockedSlot[]>(STORAGE_KEYS.BLOCKED_SLOTS, INITIAL_BLOCKED_SLOTS)
+  );
+  const [payments, setPayments] = useState<PaymentRecord[]>(() =>
+    readFromStorage<PaymentRecord[]>(STORAGE_KEYS.PAYMENTS, INITIAL_PAYMENTS)
+  );
+  const [dialogueMessages, setDialogueMessages] = useState<DialogueMessage[]>(() =>
+    readFromStorage<DialogueMessage[]>(STORAGE_KEYS.DIALOGUE, INITIAL_DIALOGUE)
+  );
+  const [adminNotifications, setAdminNotifications] = useState<AdminNotification[]>(() =>
+    readFromStorage<AdminNotification[]>(STORAGE_KEYS.NOTIFICATIONS, INITIAL_ADMIN_NOTIFICATIONS)
+  );
+  const [reviews, setReviews] = useState<CustomerReview[]>(() =>
+    readFromStorage<CustomerReview[]>(STORAGE_KEYS.REVIEWS, INITIAL_REVIEWS)
+  );
+
+  const [activeCustomerId, setActiveCustomerIdState] = useState<string>(() =>
+    readFromStorage<string>(STORAGE_KEYS.ACTIVE_CUSTOMER_ID, INITIAL_CUSTOMERS[0]?.id || 'cust-1')
+  );
+  const [adminMfaEnabled, setAdminMfaEnabled] = useState<boolean>(() =>
+    readFromStorage<boolean>(STORAGE_KEYS.ADMIN_MFA, Boolean(INITIAL_ADMIN.mfaEnabled))
+  );
 
   const [currentRole, setCurrentRole] = useState<UserRole>('customer');
-  const [currentUser, setCurrentUser] = useState<UserProfile>(GUEST_USER);
   const [mfaModalOpen, setMfaModalOpen] = useState<boolean>(false);
-
-  // Firestore-backed collections
-  const [customers, setCustomers] = useState<UserProfile[]>([]);
-  const [quotes, setQuotes] = useState<QuoteRequest[]>([]);
-  const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>([]);
-  const [payments, setPayments] = useState<PaymentRecord[]>([]);
-  const [dialogueMessages, setDialogueMessages] = useState<DialogueMessage[]>([]);
-  const [adminNotifications, setAdminNotifications] = useState<AdminNotification[]>([]);
-
-  const [reviews, setReviews] = useState<CustomerReview[]>(INITIAL_REVIEWS);
 
   // Modal and navigation states
   const [quoteModalOpen, setQuoteModalOpen] = useState<boolean>(false);
@@ -290,7 +262,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [bookingModalOpen, setBookingModalOpen] = useState<boolean>(false);
   const [preselectedServiceForBooking, setPreselectedServiceForBooking] = useState<string | null>(null);
   const [dialogueDrawerOpen, setDialogueDrawerOpen] = useState<boolean>(false);
-  const [activeDialogueThreadId, setActiveDialogueThreadId] = useState<string>('');
+  const [activeDialogueThreadId, setActiveDialogueThreadId] = useState<string>(() =>
+    readFromStorage<string>(STORAGE_KEYS.ACTIVE_CUSTOMER_ID, INITIAL_CUSTOMERS[0]?.id || 'cust-1')
+  );
   const [activeView, setActiveView] = useState<AppViewMode>('home');
   const [selectedQuoteCategory, setSelectedQuoteCategory] = useState<string | null>(null);
   const [selectedQuoteSubcategories, setSelectedQuoteSubcategories] = useState<string[]>([]);
@@ -310,726 +284,173 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  const clearAuthError = () => setAuthError(null);
-  const clearFirestoreError = () => setFirestoreError(null);
-
-  const reportListenerError = (error: unknown, operationType: OperationType, path: string): never => {
-    const rawMsg = error instanceof Error ? error.message : String(error);
-    const code = (error as { code?: string })?.code || '';
-    if (code === 'permission-denied' || rawMsg.includes('Missing or insufficient permissions')) {
-      setFirestoreError(
-        `Database permission error while reading "${path}". Make sure you are signed in with an authorized, email-verified Google account.`
-      );
-    } else if (rawMsg.includes('Quota exceeded') || code === 'resource-exhausted') {
-      setFirestoreError(
-        'Daily free-tier Firestore database quota was reached. Quota resets tomorrow, or you can upgrade the Firebase plan.'
-      );
-    } else if (code === 'unavailable' || rawMsg.includes('offline')) {
-      setFirestoreError(
-        'Could not reach the Firestore database. Please check your internet connection and refresh the page.'
-      );
-    } else {
-      setFirestoreError(`Database connection error (${path}): ${rawMsg}`);
-    }
-    return handleFirestoreError(error, operationType, path);
-  };
-
-  // 1. Auth State Listener
+  // Persist every collection cleanly to localStorage
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setAuthError(null);
-      setFirestoreError(null);
+    writeToStorage(STORAGE_KEYS.CUSTOMERS, customers);
+  }, [customers]);
 
-      if (!user) {
-        setFirebaseUser(null);
-        setIsEmailVerified(false);
-        setIsAdminAuthorized(false);
-        setCustomerProfileExists(false);
-        setCurrentUser(GUEST_USER);
-        setCustomers([]);
-        setQuotes([]);
-        setAppointments([]);
-        setPayments([]);
-        setAdminNotifications([]);
-        setDialogueMessages([]);
-        setActiveDialogueThreadId('');
-        setCurrentRole((prev) => (prev === 'admin' ? 'customer' : prev));
-        setAuthReady(true);
-        return;
-      }
-
-      // Check real admin authorization BEFORE publishing firebaseUser so scoped listeners match the right role immediately
-      let adminStatus = Boolean(user.emailVerified && user.email?.toLowerCase() === ADMIN_EMAIL);
-      if (!adminStatus && user.emailVerified) {
-        try {
-          const adminDoc = await getDoc(doc(db, 'admins', user.uid));
-          if (adminDoc.exists() && adminDoc.data()?.role === 'admin') {
-            adminStatus = true;
-          }
-        } catch {
-          // Non-admin user simply won't have admin doc access
-          adminStatus = false;
-        }
-      }
-
-      setIsEmailVerified(Boolean(user.emailVerified));
-      setIsAdminAuthorized(adminStatus);
-      setFirebaseUser(user);
-      setActiveDialogueThreadId(user.uid);
-      setAuthReady(true);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  // 1b. Complete Google Sign-In if returning from a redirect fallback (e.g. on browsers blocking popups)
   useEffect(() => {
-    let active = true;
-    const checkRedirect = async () => {
+    writeToStorage(STORAGE_KEYS.QUOTES, quotes);
+  }, [quotes]);
+
+  useEffect(() => {
+    writeToStorage(STORAGE_KEYS.APPOINTMENTS, appointments);
+  }, [appointments]);
+
+  useEffect(() => {
+    writeToStorage(STORAGE_KEYS.BLOCKED_SLOTS, blockedSlots);
+  }, [blockedSlots]);
+
+  useEffect(() => {
+    writeToStorage(STORAGE_KEYS.PAYMENTS, payments);
+  }, [payments]);
+
+  useEffect(() => {
+    writeToStorage(STORAGE_KEYS.DIALOGUE, dialogueMessages);
+  }, [dialogueMessages]);
+
+  useEffect(() => {
+    writeToStorage(STORAGE_KEYS.NOTIFICATIONS, adminNotifications);
+  }, [adminNotifications]);
+
+  useEffect(() => {
+    writeToStorage(STORAGE_KEYS.REVIEWS, reviews);
+  }, [reviews]);
+
+  useEffect(() => {
+    writeToStorage(STORAGE_KEYS.ACTIVE_CUSTOMER_ID, activeCustomerId);
+  }, [activeCustomerId]);
+
+  useEffect(() => {
+    writeToStorage(STORAGE_KEYS.ADMIN_MFA, adminMfaEnabled);
+  }, [adminMfaEnabled]);
+
+  // Cross-tab synchronization within the same browser
+  useEffect(() => {
+    const handleStorage = (e: StorageEvent) => {
+      if (!e.key || !e.newValue) return;
       try {
-        const result = await getRedirectResult(auth, popupResolver);
-        if (!active || !result) return;
-
-        const pendingRole = sessionStorage.getItem('aypw_pending_auth_role');
-        const pendingView = sessionStorage.getItem('aypw_pending_auth_view') as AppViewMode | null;
-        sessionStorage.removeItem('aypw_pending_auth_role');
-        sessionStorage.removeItem('aypw_pending_auth_view');
-
-        if (pendingView) {
-          setActiveView(pendingView);
-        }
-
-        const signedUser = result.user;
-        if (pendingRole === 'admin' || pendingRole === 'technical') {
-          let isAdmin = Boolean(signedUser.emailVerified && signedUser.email?.toLowerCase() === ADMIN_EMAIL);
-          if (!isAdmin && signedUser.emailVerified) {
-            try {
-              const adminDoc = await getDoc(doc(db, 'admins', signedUser.uid));
-              if (adminDoc.exists() && adminDoc.data()?.role === 'admin') {
-                isAdmin = true;
-              }
-            } catch {
-              isAdmin = false;
-            }
-          }
-          if (!isAdmin) {
-            const label = pendingRole === 'technical' ? 'Technician Dispatch' : 'Administrator';
-            const msg = `Access denied: ${signedUser.email || 'This account'} is not authorized for ${label} access.`;
-            setAuthError(msg);
-            addToast(msg, 'error');
-            return;
-          }
-          setCurrentRole(pendingRole === 'technical' ? 'technician' : 'admin');
-          addToast(
-            pendingRole === 'technical'
-              ? 'Dispatch Technician access authenticated.'
-              : 'Administrator authenticated successfully.',
-            'success'
-          );
-        } else {
-          setCurrentRole('customer');
-          addToast(`Signed in as ${signedUser.email}`, 'success');
-        }
-      } catch (error) {
-        if (!active) return;
-        sessionStorage.removeItem('aypw_pending_auth_role');
-        sessionStorage.removeItem('aypw_pending_auth_view');
-        const code = (error as { code?: string })?.code || '';
-        const rawMsg = error instanceof Error ? error.message : 'Google Sign-In failed.';
-        const hostname = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
-        const friendlyMsg =
-          code === 'auth/unauthorized-domain' || rawMsg.includes('auth/unauthorized-domain')
-            ? `This website domain (${hostname}) is not authorized in Firebase Authentication yet. Add "${hostname}" in Firebase Console → Authentication → Settings → Authorized domains, then try signing in again.`
-            : rawMsg;
-        setAuthError(friendlyMsg);
-        addToast(friendlyMsg, 'error');
-      }
-    };
-
-    void checkRedirect();
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  // 2. Public listener for Blocked Slots (No PII — powers booking calendar availability immediately)
-  useEffect(() => {
-    const path = 'blockedSlots';
-    const unsubscribe = onSnapshot(
-      collection(db, path),
-      (snapshot) => {
-        const list: BlockedSlot[] = snapshot.docs.map((d) => {
-          const data = d.data();
-          return {
-            id: d.id,
-            date: data.date || '',
-            timeSlot: data.timeSlot || 'All Day',
-            reason: data.reason || ''
-          };
-        });
-        setBlockedSlots(list);
-      },
-      (error) => {
-        reportListenerError(error, OperationType.LIST, path);
-      }
-    );
-    return () => unsubscribe();
-  }, []);
-
-  // 3. Authenticated User Profile & Scoped Data Listeners
-  useEffect(() => {
-    if (!authReady || !firebaseUser) return;
-
-    const uid = firebaseUser.uid;
-    const unsubs: Array<() => void> = [];
-
-    // Listen to current user's customer profile doc
-    setProfileLoading(true);
-    const profilePath = `customers/${uid}`;
-    unsubs.push(
-      onSnapshot(
-        doc(db, 'customers', uid),
-        (docSnap) => {
-          if (docSnap.exists()) {
-            const data = docSnap.data();
-            setCustomerProfileExists(true);
-            setCurrentUser({
-              id: uid,
-              name: data.name || firebaseUser.displayName || '',
-              email: data.email || firebaseUser.email || '',
-              phone: data.phone || '',
-              address: data.address || '',
-              role: isAdminAuthorized ? 'admin' : 'customer',
-              notes: data.notes || '',
-              mfaEnabled: false
-            });
-          } else {
-            setCustomerProfileExists(false);
-            setCurrentUser({
-              id: uid,
-              name: firebaseUser.displayName || '',
-              email: firebaseUser.email || '',
-              phone: '',
-              address: '',
-              role: isAdminAuthorized ? 'admin' : 'customer',
-              notes: '',
-              mfaEnabled: false
-            });
-          }
-          setProfileLoading(false);
-        },
-        (error) => {
-          setProfileLoading(false);
-          reportListenerError(error, OperationType.GET, profilePath);
-        }
-      )
-    );
-
-    if (isAdminAuthorized) {
-      // Admin: full collection listeners (protected by firestore.rules isBootstrappedAdmin / isAdmin)
-      unsubs.push(
-        onSnapshot(
-          collection(db, 'customers'),
-          (snap) => {
-            setCustomers(
-              snap.docs.map((d) => {
-                const data = d.data();
-                return {
-                  id: d.id,
-                  name: data.name || '',
-                  email: data.email || '',
-                  phone: data.phone || '',
-                  address: data.address || '',
-                  role: 'customer',
-                  notes: data.notes || ''
-                };
-              })
-            );
-          },
-          (error) => reportListenerError(error, OperationType.LIST, 'customers')
-        )
-      );
-
-      unsubs.push(
-        onSnapshot(
-          collection(db, 'quotes'),
-          (snap) => {
-            setQuotes(
-              snap.docs.map((d) => {
-                const data = d.data();
-                return {
-                  ...(data as Omit<QuoteRequest, 'id' | 'photos' | 'createdAt'>),
-                  id: d.id,
-                  photos: [],
-                  createdAt: data.createdDate || ''
-                };
-              })
-            );
-          },
-          (error) => reportListenerError(error, OperationType.LIST, 'quotes')
-        )
-      );
-
-      unsubs.push(
-        onSnapshot(
-          collection(db, 'appointments'),
-          (snap) => {
-            setAppointments(
-              snap.docs.map((d) => ({
-                ...(d.data() as Appointment),
-                id: d.id
-              }))
-            );
-          },
-          (error) => reportListenerError(error, OperationType.LIST, 'appointments')
-        )
-      );
-
-      unsubs.push(
-        onSnapshot(
-          collection(db, 'payments'),
-          (snap) => {
-            setPayments(
-              snap.docs.map((d) => ({
-                ...(d.data() as PaymentRecord),
-                id: d.id
-              }))
-            );
-          },
-          (error) => reportListenerError(error, OperationType.LIST, 'payments')
-        )
-      );
-
-      unsubs.push(
-        onSnapshot(
-          collection(db, 'adminNotifications'),
-          (snap) => {
-            setAdminNotifications(
-              snap.docs.map((d) => ({
-                ...(d.data() as AdminNotification),
-                id: d.id
-              }))
-            );
-          },
-          (error) => reportListenerError(error, OperationType.LIST, 'adminNotifications')
-        )
-      );
-
-      unsubs.push(
-        onSnapshot(
-          collection(db, 'dialogueMessages'),
-          (snap) => {
-            setDialogueMessages(
-              snap.docs.map((d) => ({
-                ...(d.data() as DialogueMessage),
-                id: d.id
-              }))
-            );
-          },
-          (error) => reportListenerError(error, OperationType.LIST, 'dialogueMessages')
-        )
-      );
-    } else {
-      // Customer: strictly scoped queries where customerId == uid (enforced by firestore.rules)
-      setCustomers([]);
-      setPayments([]);
-      setAdminNotifications([]);
-
-      const qQuotes = query(collection(db, 'quotes'), where('customerId', '==', uid));
-      unsubs.push(
-        onSnapshot(
-          qQuotes,
-          (snap) => {
-            setQuotes(
-              snap.docs.map((d) => {
-                const data = d.data();
-                return {
-                  ...(data as Omit<QuoteRequest, 'id' | 'photos' | 'createdAt'>),
-                  id: d.id,
-                  photos: [],
-                  createdAt: data.createdDate || ''
-                };
-              })
-            );
-          },
-          (error) => reportListenerError(error, OperationType.LIST, 'quotes')
-        )
-      );
-
-      const qAppts = query(collection(db, 'appointments'), where('customerId', '==', uid));
-      unsubs.push(
-        onSnapshot(
-          qAppts,
-          (snap) => {
-            setAppointments(
-              snap.docs.map((d) => ({
-                ...(d.data() as Appointment),
-                id: d.id
-              }))
-            );
-          },
-          (error) => reportListenerError(error, OperationType.LIST, 'appointments')
-        )
-      );
-
-      const qMsgs = query(collection(db, 'dialogueMessages'), where('threadId', '==', uid));
-      unsubs.push(
-        onSnapshot(
-          qMsgs,
-          (snap) => {
-            setDialogueMessages(
-              snap.docs.map((d) => ({
-                ...(d.data() as DialogueMessage),
-                id: d.id
-              }))
-            );
-          },
-          (error) => reportListenerError(error, OperationType.LIST, 'dialogueMessages')
-        )
-      );
-    }
-
-    return () => {
-      unsubs.forEach((u) => u());
-    };
-  }, [authReady, firebaseUser, isAdminAuthorized]);
-
-  const checkUserAdminStatus = async (user: User): Promise<boolean> => {
-    let isAdmin = Boolean(user.emailVerified && user.email?.toLowerCase() === ADMIN_EMAIL);
-    if (!isAdmin && user.emailVerified) {
-      try {
-        const adminDoc = await getDoc(doc(db, 'admins', user.uid));
-        if (adminDoc.exists() && adminDoc.data()?.role === 'admin') {
-          isAdmin = true;
+        const parsed = JSON.parse(e.newValue);
+        switch (e.key) {
+          case STORAGE_KEYS.CUSTOMERS:
+            setCustomers(parsed);
+            break;
+          case STORAGE_KEYS.QUOTES:
+            setQuotes(parsed);
+            break;
+          case STORAGE_KEYS.APPOINTMENTS:
+            setAppointments(parsed);
+            break;
+          case STORAGE_KEYS.BLOCKED_SLOTS:
+            setBlockedSlots(parsed);
+            break;
+          case STORAGE_KEYS.PAYMENTS:
+            setPayments(parsed);
+            break;
+          case STORAGE_KEYS.DIALOGUE:
+            setDialogueMessages(parsed);
+            break;
+          case STORAGE_KEYS.NOTIFICATIONS:
+            setAdminNotifications(parsed);
+            break;
+          case STORAGE_KEYS.REVIEWS:
+            setReviews(parsed);
+            break;
+          case STORAGE_KEYS.ACTIVE_CUSTOMER_ID:
+            setActiveCustomerIdState(parsed);
+            break;
+          case STORAGE_KEYS.ADMIN_MFA:
+            setAdminMfaEnabled(Boolean(parsed));
+            break;
         }
       } catch {
-        isAdmin = false;
+        // Ignore malformed storage events
       }
-    }
-    return isAdmin;
+    };
+
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  const setActiveCustomerId = (id: string) => {
+    setActiveCustomerIdState(id);
+    setActiveDialogueThreadId(id);
   };
 
-  const mapAuthErrorMessage = (error: unknown, isGoogle = false): string => {
-    const code = (error as { code?: string })?.code || '';
-    const rawMsg = error instanceof Error ? error.message : 'Authentication failed. Please try again.';
-    const hostname = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
+  const activeCustomerRecord =
+    customers.find((c) => c.id === activeCustomerId) || customers[0] || INITIAL_CUSTOMERS[0];
 
-    if (code === 'auth/unauthorized-domain' || rawMsg.includes('auth/unauthorized-domain')) {
-      return `Google Sign-In cannot run on "${hostname}" until that domain is added in Firebase Console → Authentication → Settings → Authorized domains. You can Sign In or Create an Account with Email & Password right here without waiting.`;
-    }
-    if (code === 'auth/popup-blocked' || rawMsg.includes('auth/popup-blocked')) {
-      return 'Your browser blocked the Google Sign-In popup. Allow popups for this website, or use Email & Password Sign-In above.';
-    }
-    if (
-      code === 'auth/popup-closed-by-user' ||
-      code === 'auth/cancelled-popup-request' ||
-      rawMsg.includes('popup-closed-by-user')
-    ) {
-      return 'Google Sign-In was closed before finishing. Please try again.';
-    }
-    if (code === 'auth/email-already-in-use') {
-      return 'An account with this email already exists (either via Email/Password or Google). Please switch to the Sign In tab, click Continue with Google, or use Forgot Password.';
-    }
-    if (
-      code === 'auth/invalid-credential' ||
-      code === 'auth/wrong-password' ||
-      code === 'auth/user-not-found'
-    ) {
-      return 'Invalid email or password. If you previously signed in with Google, please click "Continue with Google" or use Forgot Password.';
-    }
-    if (code === 'auth/invalid-email') {
-      return 'Please enter a valid email address.';
-    }
-    if (code === 'auth/weak-password') {
-      return 'Password must be at least 6 characters long.';
-    }
-    if (code === 'auth/too-many-requests') {
-      return 'Too many attempts. Please wait a moment and try again.';
-    }
-    if (code === 'auth/operation-not-allowed') {
-      return isGoogle
-        ? 'Google Sign-In is not enabled in Firebase Console → Authentication → Sign-in method.'
-        : 'Email/Password Sign-In is not enabled yet. Enable "Email/Password" in Firebase Console → Authentication → Sign-in method.';
-    }
-    if (code === 'auth/network-request-failed') {
-      return 'Network error while connecting to Firebase Authentication. Please check your internet connection and try again.';
-    }
-    return rawMsg;
+  const adminProfile: UserProfile = {
+    ...INITIAL_ADMIN,
+    mfaEnabled: adminMfaEnabled
   };
 
-  // Sign In with Google
-  const signInWithGoogle = async (
-    expectedRole: 'customer' | 'admin' | 'technical' = 'customer'
-  ): Promise<{ success: boolean; error?: string }> => {
-    try {
-      // Trigger signInWithPopup immediately on the click stack before any React state updates
-      // so browsers preserve transient user activation and do not block the popup.
-      const popupPromise = signInWithPopup(auth, googleProvider, popupResolver);
-      setAuthError(null);
-      const cred = await popupPromise;
-      const signedUser = cred.user;
+  const currentUser: UserProfile =
+    currentRole === 'admin'
+      ? adminProfile
+      : {
+          ...activeCustomerRecord,
+          mfaEnabled: adminMfaEnabled
+        };
 
-      if (expectedRole === 'admin' || expectedRole === 'technical') {
-        const isAdmin = await checkUserAdminStatus(signedUser);
-        if (!isAdmin) {
-          const label = expectedRole === 'technical' ? 'Technician Dispatch' : 'Administrator';
-          const msg = `Access denied: ${signedUser.email || 'This account'} is not authorized for ${label} access.`;
-          setAuthError(msg);
-          addToast(msg, 'error');
-          return { success: false, error: msg };
-        }
-        setCurrentRole(expectedRole === 'technical' ? 'technician' : 'admin');
-        addToast(
-          expectedRole === 'technical'
-            ? 'Dispatch Technician access authenticated.'
-            : 'Administrator authenticated successfully.',
-          'success'
-        );
-        return { success: true };
-      }
-
-      setCurrentRole('customer');
-      addToast(`Signed in as ${signedUser.email}`, 'success');
-      return { success: true };
-    } catch (error) {
-      const code = (error as { code?: string })?.code || '';
-      const rawMsg = error instanceof Error ? error.message : 'Authentication cancelled or rejected.';
-      const isTopLevelWindow = typeof window !== 'undefined' && window.self === window.top;
-
-      // On standalone top-level deployments (such as Vercel), fall back to redirect sign-in
-      // if the browser or an extension blocks the popup window.
-      if ((code === 'auth/popup-blocked' || rawMsg.includes('auth/popup-blocked')) && isTopLevelWindow) {
-        try {
-          sessionStorage.setItem('aypw_pending_auth_role', expectedRole);
-          sessionStorage.setItem(
-            'aypw_pending_auth_view',
-            expectedRole === 'admin'
-              ? 'admin_dashboard'
-              : expectedRole === 'technical'
-              ? 'tech_portal'
-              : 'customer_portal'
-          );
-          await signInWithRedirect(auth, googleProvider, popupResolver);
-          return { success: true };
-        } catch (redirectError) {
-          sessionStorage.removeItem('aypw_pending_auth_role');
-          sessionStorage.removeItem('aypw_pending_auth_view');
-          const redirectMsg = mapAuthErrorMessage(redirectError, true);
-          setAuthError(redirectMsg);
-          addToast(redirectMsg, 'error');
-          return { success: false, error: redirectMsg };
-        }
-      }
-
-      const friendlyMsg = mapAuthErrorMessage(error, true);
-      setAuthError(friendlyMsg);
-      addToast(friendlyMsg, 'error');
-      return { success: false, error: friendlyMsg };
+  const setCurrentUser = (user: UserProfile) => {
+    if (user.role === 'admin') {
+      setAdminMfaEnabled(Boolean(user.mfaEnabled));
+      return;
     }
+    setCustomers((prev) => prev.map((c) => (c.id === user.id ? { ...c, ...user } : c)));
+    setActiveCustomerId(user.id);
   };
 
-  // Sign In with Email & Password
-  const signInWithEmail = async (
-    email: string,
-    password: string,
-    expectedRole: 'customer' | 'admin' | 'technical' = 'customer'
-  ): Promise<{ success: boolean; error?: string; needsVerification?: boolean }> => {
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail || !password) {
-      const msg = 'Please enter both your email address and password.';
-      setAuthError(msg);
-      return { success: false, error: msg };
-    }
+  // Resolve or register a customer in the CRM so Quotes & Bookings always sync with Customer Records
+  const resolveOrCreateCustomer = (info: {
+    name: string;
+    email: string;
+    phone: string;
+    address: string;
+  }): UserProfile => {
+    const trimmedEmail = info.email.trim().toLowerCase();
+    const trimmedName = info.name.trim();
+    const existingByEmail = customers.find(
+      (c) => trimmedEmail && c.email.trim().toLowerCase() === trimmedEmail
+    );
 
-    try {
-      setAuthError(null);
-      const cred = await signInWithEmailAndPassword(auth, trimmedEmail, password);
-      const signedUser = cred.user;
-      setIsEmailVerified(Boolean(signedUser.emailVerified));
-
-      if (!signedUser.emailVerified) {
-        const verifyMsg =
-          'Account signed in, but your email is not verified yet. Click the verification link in your inbox, then click "I Verified — Refresh".';
-        addToast(verifyMsg, 'warning');
-        return { success: true, needsVerification: true };
-      }
-
-      if (expectedRole === 'admin' || expectedRole === 'technical') {
-        const isAdmin = await checkUserAdminStatus(signedUser);
-        if (!isAdmin) {
-          const label = expectedRole === 'technical' ? 'Technician Dispatch' : 'Administrator';
-          const msg = `Access denied: ${signedUser.email || 'This account'} is not authorized for ${label} access.`;
-          setAuthError(msg);
-          addToast(msg, 'error');
-          return { success: false, error: msg };
-        }
-        setCurrentRole(expectedRole === 'technical' ? 'technician' : 'admin');
-        addToast(
-          expectedRole === 'technical'
-            ? 'Dispatch Technician access authenticated.'
-            : 'Administrator authenticated successfully.',
-          'success'
-        );
-        return { success: true };
-      }
-
-      setCurrentRole('customer');
-      addToast(`Signed in as ${signedUser.email}`, 'success');
-      return { success: true };
-    } catch (error) {
-      const friendlyMsg = mapAuthErrorMessage(error, false);
-      setAuthError(friendlyMsg);
-      addToast(friendlyMsg, 'error');
-      return { success: false, error: friendlyMsg };
-    }
-  };
-
-  // Create Account with Email & Password
-  const createAccountWithEmail = async (
-    name: string,
-    email: string,
-    password: string,
-    expectedRole: 'customer' | 'admin' | 'technical' = 'customer'
-  ): Promise<{ success: boolean; error?: string; needsVerification?: boolean; message?: string }> => {
-    const trimmedName = name.trim();
-    const trimmedEmail = email.trim();
-
-    if (!trimmedName || trimmedName.length < 2) {
-      const msg = 'Please enter your full name (at least 2 characters).';
-      setAuthError(msg);
-      return { success: false, error: msg };
-    }
-    if (!trimmedEmail || !trimmedEmail.includes('@')) {
-      const msg = 'Please enter a valid email address.';
-      setAuthError(msg);
-      return { success: false, error: msg };
-    }
-    if (!password || password.length < 6) {
-      const msg = 'Password must be at least 6 characters long.';
-      setAuthError(msg);
-      return { success: false, error: msg };
-    }
-
-    try {
-      setAuthError(null);
-      const cred = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
-      await updateProfile(cred.user, { displayName: trimmedName.slice(0, 120) });
-
-      let verificationSent = true;
-      try {
-        await sendEmailVerification(cred.user);
-      } catch {
-        verificationSent = false;
-      }
-
-      setIsEmailVerified(Boolean(cred.user.emailVerified));
-      setCurrentRole(expectedRole === 'technical' ? 'technician' : expectedRole === 'admin' ? 'admin' : 'customer');
-
-      const message = verificationSent
-        ? `Account created! A verification email was sent to ${trimmedEmail}. Please click the link in your inbox (check spam too), then click "I Verified — Refresh".`
-        : `Account created for ${trimmedEmail}. Please verify your email address in the banner to unlock quotes and bookings.`;
-      addToast(message, 'success');
-      return {
-        success: true,
-        needsVerification: !cred.user.emailVerified,
-        message
+    if (existingByEmail) {
+      const updated: UserProfile = {
+        ...existingByEmail,
+        name: trimmedName || existingByEmail.name,
+        phone: info.phone.trim() || existingByEmail.phone,
+        address: info.address.trim() || existingByEmail.address
       };
-    } catch (error) {
-      const friendlyMsg = mapAuthErrorMessage(error, false);
-      setAuthError(friendlyMsg);
-      addToast(friendlyMsg, 'error');
-      return { success: false, error: friendlyMsg };
+      setCustomers((prev) => prev.map((c) => (c.id === existingByEmail.id ? updated : c)));
+      setActiveCustomerId(existingByEmail.id);
+      return updated;
     }
+
+    const newCustomer: UserProfile = {
+      id: `cust-${Date.now()}`,
+      name: trimmedName || 'Demo Customer',
+      email: info.email.trim() || 'demo.customer@example.com',
+      phone: info.phone.trim() || '(916) 555-0100',
+      address: info.address.trim() || 'Sacramento, CA',
+      role: 'customer',
+      notes: 'Created via online quote/booking classroom demo form',
+      mfaEnabled: false
+    };
+    setCustomers((prev) => [newCustomer, ...prev]);
+    setActiveCustomerId(newCustomer.id);
+    return newCustomer;
   };
 
-  const resendVerificationEmail = async (): Promise<{ success: boolean; error?: string; message?: string }> => {
-    if (!auth.currentUser) {
-      return { success: false, error: 'You must be signed in first.' };
-    }
-    try {
-      await sendEmailVerification(auth.currentUser);
-      const message = `Verification email resent to ${auth.currentUser.email}. Check your inbox and spam folder.`;
-      addToast(message, 'success');
-      return { success: true, message };
-    } catch (error) {
-      const friendlyMsg = mapAuthErrorMessage(error, false);
-      addToast(friendlyMsg, 'error');
-      return { success: false, error: friendlyMsg };
-    }
-  };
-
-  const refreshAuthUser = async (): Promise<{ verified: boolean; isAdmin: boolean }> => {
-    if (!auth.currentUser) {
-      return { verified: false, isAdmin: false };
-    }
-    await auth.currentUser.reload();
-    await auth.currentUser.getIdToken(true);
-    const refreshed = auth.currentUser;
-    const verified = Boolean(refreshed.emailVerified);
-    const adminStatus = await checkUserAdminStatus(refreshed);
-    setIsEmailVerified(verified);
-    setIsAdminAuthorized(adminStatus);
-    setFirebaseUser(refreshed);
-
-    if (verified) {
-      addToast('Email verified! Full portal access is now unlocked.', 'success');
-    } else {
-      addToast(
-        'Email is still pending verification. Please click the link in your verification email, then click Refresh again.',
-        'warning'
-      );
-    }
-    return { verified, isAdmin: adminStatus };
-  };
-
-  const sendPasswordReset = async (
-    email: string
-  ): Promise<{ success: boolean; error?: string; message?: string }> => {
-    const trimmedEmail = email.trim();
-    if (!trimmedEmail || !trimmedEmail.includes('@')) {
-      const msg = 'Enter your email address above first, then click Forgot Password.';
-      setAuthError(msg);
-      return { success: false, error: msg };
-    }
-    try {
-      setAuthError(null);
-      await sendPasswordResetEmail(auth, trimmedEmail);
-      const message = `Password reset email sent to ${trimmedEmail}. Check your inbox and spam folder.`;
-      addToast(message, 'success');
-      return { success: true, message };
-    } catch (error) {
-      const friendlyMsg = mapAuthErrorMessage(error, false);
-      setAuthError(friendlyMsg);
-      addToast(friendlyMsg, 'error');
-      return { success: false, error: friendlyMsg };
-    }
-  };
-
-  const signOutUser = async (): Promise<void> => {
-    await signOut(auth);
-    setCurrentRole('customer');
-    addToast('Signed out successfully.', 'info');
-  };
-
-  // Mark Admin Notification Read
+  // Admin Notifications
   const markNotificationRead = async (id: string) => {
-    if (!isAdminAuthorized) return;
-    const path = `adminNotifications/${id}`;
-    try {
-      await updateDoc(doc(db, 'adminNotifications', id), { read: true });
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, path);
-    }
+    setAdminNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+    );
   };
 
   const clearNotification = async (id: string) => {
-    if (!isAdminAuthorized) return;
-    const path = `adminNotifications/${id}`;
-    try {
-      await deleteDoc(doc(db, 'adminNotifications', id));
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, path);
-    }
+    setAdminNotifications((prev) => prev.filter((n) => n.id !== id));
   };
 
   // Dynamic Direct Price Calculator (Preliminary estimate based on $250 minimum baseline)
@@ -1052,7 +473,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   };
 
-  // Dialogue messaging system persisted to Firestore
+  // Dialogue messaging system persisted to localStorage
   const sendDialogueMessage = async (
     threadId: string,
     customerName: string,
@@ -1063,21 +484,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     quoteId?: string,
     appointmentId?: string
   ): Promise<DialogueMessage | null> => {
-    if (!firebaseUser) {
-      addToast('Please sign in to send messages.', 'warning');
-      return null;
-    }
-    if (!firebaseUser.emailVerified) {
-      addToast('Please verify your email address first, then click "I Verified — Refresh".', 'warning');
-      return null;
-    }
-
     const msgId = `msg-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
     const now = new Date();
     const timestamp = `${now.toISOString().split('T')[0]} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-    const targetThread = isAdminAuthorized ? threadId : firebaseUser.uid;
+    const targetThread = threadId || activeCustomerRecord.id;
 
-    const payload = sanitizeForFirestore({
+    const newMsg: DialogueMessage = {
       id: msgId,
       threadId: targetThread,
       customerName: customerName.slice(0, 120),
@@ -1087,29 +499,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       timestamp,
       quoteId,
       appointmentId,
-      directPrice,
-      createdAt: serverTimestamp()
-    });
+      directPrice
+    };
 
-    const path = `dialogueMessages/${msgId}`;
-    try {
-      await setDoc(doc(db, 'dialogueMessages', msgId), payload);
-      addToast('Message sent and saved to dialogue log.', 'success');
-      return {
-        id: msgId,
-        threadId: targetThread,
-        customerName,
-        senderRole,
-        senderName,
-        message,
-        timestamp,
-        quoteId,
-        appointmentId,
-        directPrice
-      };
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, path);
-    }
+    setDialogueMessages((prev) => [...prev, newMsg]);
+    addToast('Message sent and saved to dialogue log.', 'success');
+    return newMsg;
   };
 
   const downloadDialogueTranscript = (threadId: string) => {
@@ -1185,18 +580,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     addToast('Thank you for sharing your review!', 'success');
   };
 
-  // Dedicated View Switcher (No unauthenticated bypass into Admin!)
+  // Dedicated View Switcher (Direct Classroom Demo Access to Client, Technical, Admin)
   const switchToDedicatedView = (mode: 'client' | 'technical' | 'admin') => {
     if (mode === 'client') {
       setCurrentRole('customer');
+      setActiveDialogueThreadId(activeCustomerRecord.id);
       setActiveView('customer_portal');
     } else if (mode === 'technical') {
       setCurrentRole('technician');
       setActiveView('tech_portal');
     } else if (mode === 'admin') {
-      if (isAdminAuthorized) {
-        setCurrentRole('admin');
-      }
+      setCurrentRole('admin');
       setActiveView('admin_dashboard');
     }
   };
@@ -1208,9 +602,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const toggleAdminMFA = (enable: boolean) => {
-    if (!isAdminAuthorized) return;
-    setCurrentUser((prev) => ({ ...prev, mfaEnabled: enable }));
-    addToast(`Two-Factor Authentication (2FA) ${enable ? 'enabled' : 'disabled'} for Administrator`, 'success');
+    setAdminMfaEnabled(enable);
+    addToast(`Two-Factor Authentication (2FA) ${enable ? 'enabled' : 'disabled'} for Administrator demo`, 'success');
   };
 
   // Overlap & Blocked Slot Check
@@ -1254,64 +647,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { available: true };
   };
 
-  // Quote Submission (Persisted to Firestore)
+  // Quote Submission (Persisted to localStorage)
   const submitQuoteRequest = async (
     quoteData: Omit<QuoteRequest, 'id' | 'status' | 'createdAt'>
   ): Promise<QuoteRequest | null> => {
-    if (!firebaseUser) {
-      addToast('Please sign in first to submit and save your quote request.', 'warning');
-      return null;
-    }
-    if (!firebaseUser.emailVerified) {
-      addToast('Please verify your email address first, then click "I Verified — Refresh" before submitting.', 'warning');
-      return null;
-    }
+    const matchedCustomer = resolveOrCreateCustomer({
+      name: quoteData.customerName,
+      email: quoteData.email,
+      phone: quoteData.phone,
+      address: quoteData.propertyAddress
+    });
 
     const breakdown = calculateDirectPrice(quoteData.serviceId, quoteData.squareFootage || 600, quoteData.propertyAddress);
     const quoteId = `Q-${Date.now()}`;
     const createdDate = new Date().toISOString().split('T')[0];
 
-    const docPayload = sanitizeForFirestore({
+    const newQuote: QuoteRequest = {
+      ...quoteData,
       id: quoteId,
-      customerId: firebaseUser.uid,
-      customerName: quoteData.customerName.slice(0, 120),
-      email: quoteData.email.slice(0, 200),
-      phone: quoteData.phone.slice(0, 30),
-      serviceId: quoteData.serviceId.slice(0, 80),
-      serviceName: quoteData.serviceName.slice(0, 160),
-      mainCategory: quoteData.mainCategory?.slice(0, 120),
-      subcategories: quoteData.subcategories?.slice(0, 20),
-      removalNeeds: quoteData.removalNeeds?.slice(0, 10),
-      otherRemovalDetails: quoteData.otherRemovalDetails?.slice(0, 500),
-      timingPreference: quoteData.timingPreference,
-      preferredDate: quoteData.preferredDate?.slice(0, 20),
-      streetAddress: quoteData.streetAddress?.slice(0, 200),
-      city: quoteData.city?.slice(0, 100),
-      state: quoteData.state?.slice(0, 30),
-      zipCode: quoteData.zipCode?.slice(0, 20),
-      propertyAddress: quoteData.propertyAddress.slice(0, 300),
-      areaDescription: (quoteData.areaDescription || '').slice(0, 2000),
-      squareFootage: quoteData.squareFootage,
-      photoCount: quoteData.photos?.length || 0,
+      customerId: matchedCustomer.id,
       status: 'new',
       estimatedPrice: breakdown.totalDirectPrice,
-      createdDate,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
+      directPriceBreakdown: breakdown,
+      createdAt: createdDate
+    };
 
-    const quotePath = `quotes/${quoteId}`;
-    try {
-      await setDoc(doc(db, 'quotes', quoteId), docPayload);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, quotePath);
-    }
+    setQuotes((prev) => [newQuote, ...prev]);
 
-    // Create Admin Notification
     const notifId = `notif-${Date.now()}`;
-    const notifPayload = sanitizeForFirestore({
+    const newNotif: AdminNotification = {
       id: notifId,
-      customerId: firebaseUser.uid,
       type: 'quote_access',
       title: `Quote Access Request: ${quoteData.serviceName}`.slice(0, 160),
       customerName: quoteData.customerName.slice(0, 120),
@@ -1323,19 +688,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       estimatedPrice: breakdown.totalDirectPrice,
       timestamp: 'Just now',
       read: false,
-      notes: 'Customer submitted quote request. Owner review required before final quote.',
-      createdAt: serverTimestamp()
-    });
+      notes: 'Customer submitted quote request. Owner review required before final quote.'
+    };
+    setAdminNotifications((prev) => [newNotif, ...prev]);
 
-    try {
-      await setDoc(doc(db, 'adminNotifications', notifId), notifPayload);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `adminNotifications/${notifId}`);
-    }
-
-    // Create dialogue entry
     await sendDialogueMessage(
-      firebaseUser.uid,
+      matchedCustomer.id,
       quoteData.customerName,
       'client',
       quoteData.customerName,
@@ -1344,59 +702,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       quoteId
     );
 
-    addToast('Quote request saved to your account and sent to Admin!', 'success');
-    return {
-      ...quoteData,
-      id: quoteId,
-      customerId: firebaseUser.uid,
-      status: 'new',
-      estimatedPrice: breakdown.totalDirectPrice,
-      directPriceBreakdown: breakdown,
-      createdAt: createdDate
-    };
+    addToast('Quote request saved and sent to Admin Dashboard!', 'success');
+    return newQuote;
   };
 
-  // Update Quote Status (Admin only)
+  // Update Quote Status (Admin)
   const updateQuoteStatus = async (
     quoteId: string,
     status: QuoteRequest['status'],
     estimatedPrice?: number,
     adminNotes?: string
   ) => {
-    if (!isAdminAuthorized) return;
-    const path = `quotes/${quoteId}`;
-    try {
-      await updateDoc(
-        doc(db, 'quotes', quoteId),
-        sanitizeForFirestore({
-          status,
-          estimatedPrice,
-          adminNotes: adminNotes?.slice(0, 1000),
-          updatedAt: serverTimestamp()
-        })
-      );
-      addToast(`Quote #${quoteId} status updated to: ${status.toUpperCase()}`, 'info');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, path);
-    }
+    setQuotes((prev) =>
+      prev.map((q) =>
+        q.id === quoteId
+          ? {
+              ...q,
+              status,
+              ...(estimatedPrice !== undefined ? { estimatedPrice } : {}),
+              ...(adminNotes !== undefined ? { adminNotes } : {})
+            }
+          : q
+      )
+    );
+    addToast(`Quote #${quoteId} status updated to: ${status.toUpperCase()}`, 'info');
   };
 
-  // Convert Quote to Appointment (Admin only)
+  // Convert Quote to Appointment (Admin)
   const convertQuoteToAppointment = async (
     quoteId: string,
     scheduledDate: string,
     scheduledTime: string,
     technicianId: string
   ): Promise<Appointment | null> => {
-    if (!isAdminAuthorized) return null;
     const quote = quotes.find((q) => q.id === quoteId);
-    if (!quote) throw new Error('Quote not found');
+    if (!quote) return null;
 
     const tech = technicians.find((t) => t.id === technicianId) || technicians[0];
     const apptId = `APT-${Date.now()}`;
-    const customerId = quote.customerId || firebaseUser?.uid || 'cust-unknown';
+    const customerId = quote.customerId || activeCustomerRecord.id;
+    const price = Math.max(250, quote.estimatedPrice || 250);
 
-    const docPayload = sanitizeForFirestore({
+    const newAppt: Appointment = {
       id: apptId,
       quoteId: quote.id,
       customerId,
@@ -1412,53 +759,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       technicianName: tech.name,
       status: 'scheduled',
       notes: `Converted from Quote #${quote.id}. ${quote.areaDescription || ''}`.slice(0, 1000),
-      price: Math.max(250, quote.estimatedPrice || 250),
+      price,
       squareFootage: quote.squareFootage,
-      paymentStatus: 'pending',
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
+      paymentStatus: 'pending'
+    };
 
-    try {
-      await setDoc(doc(db, 'appointments', apptId), docPayload);
-      await updateQuoteStatus(quoteId, 'accepted');
-      await sendDialogueMessage(
-        customerId,
-        quote.customerName,
-        'admin',
-        'Sacramento Dispatch (Marcus)',
-        `Appointment confirmed for ${scheduledDate} (${scheduledTime}) with ${tech.name}. Service estimate: $${docPayload.price}. $0 assessment fee applied.`,
-        Number(docPayload.price),
-        quote.id,
-        apptId
-      );
-      addToast(`Appointment #${apptId} successfully created from Quote #${quoteId}!`, 'success');
-      return {
-        id: apptId,
-        quoteId: quote.id,
-        customerId,
-        customerName: quote.customerName,
-        customerEmail: quote.email,
-        customerPhone: quote.phone,
-        serviceId: quote.serviceId,
-        serviceName: quote.serviceName,
-        serviceAddress: quote.propertyAddress,
-        scheduledDate,
-        scheduledTime,
-        technicianId: tech.id,
-        technicianName: tech.name,
-        status: 'scheduled',
-        notes: String(docPayload.notes),
-        price: Number(docPayload.price),
-        squareFootage: quote.squareFootage,
-        paymentStatus: 'pending'
-      };
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `appointments/${apptId}`);
-    }
+    setAppointments((prev) => [newAppt, ...prev]);
+    await updateQuoteStatus(quoteId, 'accepted');
+    await sendDialogueMessage(
+      customerId,
+      quote.customerName,
+      'admin',
+      'Marcus Ray (Sacramento Dispatch)',
+      `Appointment confirmed for ${scheduledDate} (${scheduledTime}) with ${tech.name}. Service estimate: $${price}. $0 assessment fee applied.`,
+      price,
+      quote.id,
+      apptId
+    );
+    addToast(`Appointment #${apptId} successfully created from Quote #${quoteId}!`, 'success');
+    return newAppt;
   };
 
-  // Book Appointment Online (Persisted to Firestore)
+  // Book Appointment Online (Persisted to localStorage)
   const bookAppointment = async (bookingData: {
     serviceId: string;
     scheduledDate: string;
@@ -1470,23 +792,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     notes?: string;
     squareFootage?: number;
   }): Promise<{ success: boolean; appointment?: Appointment; error?: string }> => {
-    if (!firebaseUser) {
-      return {
-        success: false,
-        error: 'Please sign in with your account to book and save your appointment.'
-      };
-    }
-    if (!firebaseUser.emailVerified) {
-      return {
-        success: false,
-        error: 'Please verify your email address first (check your inbox, then click "I Verified — Refresh").'
-      };
-    }
-
     const availability = isSlotAvailable(bookingData.scheduledDate, bookingData.scheduledTime);
     if (!availability.available) {
       return { success: false, error: availability.conflictReason };
     }
+
+    const matchedCustomer = resolveOrCreateCustomer({
+      name: bookingData.customerName,
+      email: bookingData.customerEmail,
+      phone: bookingData.customerPhone,
+      address: bookingData.serviceAddress
+    });
 
     const existingAtTime = appointments.filter(
       (a) =>
@@ -1504,9 +820,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
 
     const apptId = `APT-${Date.now()}`;
-    const docPayload = sanitizeForFirestore({
+    const newAppt: Appointment = {
       id: apptId,
-      customerId: firebaseUser.uid,
+      customerId: matchedCustomer.id,
       customerName: bookingData.customerName.slice(0, 120),
       customerEmail: bookingData.customerEmail.slice(0, 200),
       customerPhone: bookingData.customerPhone.slice(0, 30),
@@ -1521,49 +837,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       notes: bookingData.notes?.slice(0, 1000),
       squareFootage: bookingData.squareFootage || 600,
       price: breakdown.totalDirectPrice,
-      paymentStatus: 'pending',
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
+      paymentStatus: 'pending'
+    };
 
-    try {
-      await setDoc(doc(db, 'appointments', apptId), docPayload);
-      await sendDialogueMessage(
-        firebaseUser.uid,
-        bookingData.customerName,
-        'client',
-        bookingData.customerName,
-        `Booked appointment for ${bookingData.scheduledDate} at ${bookingData.scheduledTime}. Address: ${bookingData.serviceAddress}.`,
-        breakdown.totalDirectPrice,
-        undefined,
-        apptId
-      );
-      addToast(`Appointment #${apptId} booked successfully for ${bookingData.scheduledDate}!`, 'success');
-      return {
-        success: true,
-        appointment: {
-          id: apptId,
-          customerId: firebaseUser.uid,
-          customerName: bookingData.customerName,
-          customerEmail: bookingData.customerEmail,
-          customerPhone: bookingData.customerPhone,
-          serviceId: bookingData.serviceId,
-          serviceName: service ? service.name : 'Pressure Washing Service',
-          serviceAddress: bookingData.serviceAddress,
-          scheduledDate: bookingData.scheduledDate,
-          scheduledTime: bookingData.scheduledTime,
-          technicianId: assignedTech.id,
-          technicianName: assignedTech.name,
-          status: 'scheduled',
-          notes: bookingData.notes,
-          squareFootage: bookingData.squareFootage || 600,
-          price: breakdown.totalDirectPrice,
-          paymentStatus: 'pending'
-        }
-      };
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `appointments/${apptId}`);
-    }
+    setAppointments((prev) => [newAppt, ...prev]);
+
+    await sendDialogueMessage(
+      matchedCustomer.id,
+      bookingData.customerName,
+      'client',
+      bookingData.customerName,
+      `Booked appointment for ${bookingData.scheduledDate} at ${bookingData.scheduledTime}. Address: ${bookingData.serviceAddress}.`,
+      breakdown.totalDirectPrice,
+      undefined,
+      apptId
+    );
+    addToast(`Appointment #${apptId} booked successfully for ${bookingData.scheduledDate}!`, 'success');
+    return {
+      success: true,
+      appointment: newAppt
+    };
   };
 
   // Modify Appointment
@@ -1584,95 +877,89 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     const techObj = technicianId ? technicians.find((t) => t.id === technicianId) : null;
-    try {
-      await updateDoc(
-        doc(db, 'appointments', id),
-        sanitizeForFirestore({
-          scheduledDate: date,
-          scheduledTime: time,
-          ...(isAdminAuthorized && techObj ? { technicianId: techObj.id, technicianName: techObj.name } : {}),
-          ...(notes ? { notes: notes.slice(0, 1000) } : {}),
-          updatedAt: serverTimestamp()
-        })
-      );
-      addToast(`Appointment #${id} updated to ${date} (${time})`, 'success');
-      return { success: true };
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `appointments/${id}`);
-    }
+    setAppointments((prev) =>
+      prev.map((a) =>
+        a.id === id
+          ? {
+              ...a,
+              scheduledDate: date,
+              scheduledTime: time,
+              ...(techObj ? { technicianId: techObj.id, technicianName: techObj.name } : {}),
+              ...(notes ? { notes: notes.slice(0, 1000) } : {})
+            }
+          : a
+      )
+    );
+    addToast(`Appointment #${id} updated to ${date} (${time})`, 'success');
+    return { success: true };
   };
 
   // Cancel Appointment
   const cancelAppointment = async (id: string, reason?: string) => {
-    try {
-      await updateDoc(doc(db, 'appointments', id), {
-        status: 'cancelled',
-        cancellationReason: (reason || 'Cancelled by customer').slice(0, 500),
-        updatedAt: serverTimestamp()
-      });
-      addToast(`Appointment #${id} has been cancelled.`, 'info');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `appointments/${id}`);
-    }
+    setAppointments((prev) =>
+      prev.map((a) =>
+        a.id === id
+          ? {
+              ...a,
+              status: 'cancelled',
+              cancellationReason: (reason || 'Cancelled by customer').slice(0, 500)
+            }
+          : a
+      )
+    );
+    addToast(`Appointment #${id} has been cancelled.`, 'info');
   };
 
-  // Add Manual Appointment (Admin only)
+  // Add Manual Appointment (Admin)
   const addManualAppointment = async (
     data: Omit<Appointment, 'id' | 'status' | 'paymentStatus'>
   ): Promise<{ success: boolean; error?: string; appointment?: Appointment }> => {
-    if (!isAdminAuthorized) {
-      return { success: false, error: 'Administrator authorization required.' };
-    }
     const availability = isSlotAvailable(data.scheduledDate, data.scheduledTime, undefined, data.technicianId);
     if (!availability.available) {
       return { success: false, error: availability.conflictReason };
     }
 
-    const apptId = `APT-${Date.now()}`;
-    const payload = sanitizeForFirestore({
-      ...data,
-      id: apptId,
-      status: 'scheduled',
-      paymentStatus: 'pending',
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
+    const matchedCustomer = resolveOrCreateCustomer({
+      name: data.customerName,
+      email: data.customerEmail,
+      phone: data.customerPhone,
+      address: data.serviceAddress
     });
 
-    try {
-      await setDoc(doc(db, 'appointments', apptId), payload);
-      addToast(`Manual appointment #${apptId} registered on dispatch schedule!`, 'success');
-      return {
-        success: true,
-        appointment: {
-          ...data,
-          id: apptId,
-          status: 'scheduled',
-          paymentStatus: 'pending'
-        }
-      };
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `appointments/${apptId}`);
-    }
+    const apptId = `APT-${Date.now()}`;
+    const newAppt: Appointment = {
+      ...data,
+      customerId: matchedCustomer.id,
+      id: apptId,
+      status: 'scheduled',
+      paymentStatus: 'pending'
+    };
+
+    setAppointments((prev) => [newAppt, ...prev]);
+    addToast(`Manual appointment #${apptId} registered on dispatch schedule!`, 'success');
+    return {
+      success: true,
+      appointment: newAppt
+    };
   };
 
   // Mark Completed (Admin / Tech)
   const markAppointmentCompleted = async (id: string, techNotes?: string) => {
     const now = new Date();
     const timeStr = `${now.toISOString().split('T')[0]} ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-    try {
-      await updateDoc(
-        doc(db, 'appointments', id),
-        sanitizeForFirestore({
-          status: 'completed',
-          completedAt: timeStr,
-          technicianNotes: techNotes?.slice(0, 1000),
-          updatedAt: serverTimestamp()
-        })
-      );
-      addToast(`Appointment #${id} marked as COMPLETED. Service history updated.`, 'success');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `appointments/${id}`);
-    }
+    setAppointments((prev) =>
+      prev.map((a) =>
+        a.id === id
+          ? {
+              ...a,
+              status: 'completed',
+              completedAt: timeStr,
+              ...(techNotes !== undefined ? { technicianNotes: techNotes.slice(0, 1000) } : {})
+            }
+          : a
+      )
+    );
+    addToast(`Appointment #${id} marked as COMPLETED. Service history updated.`, 'success');
   };
 
   const updateTechnicianJobStatus = async (id: string, status: Appointment['status'], technicianNotes?: string) => {
@@ -1680,84 +967,53 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       await markAppointmentCompleted(id, technicianNotes);
       return;
     }
-    try {
-      await updateDoc(
-        doc(db, 'appointments', id),
-        sanitizeForFirestore({
-          status,
-          technicianNotes: technicianNotes?.slice(0, 1000),
-          updatedAt: serverTimestamp()
-        })
-      );
-      addToast(`Job #${id} status updated to: ${status.replace('_', ' ').toUpperCase()}`, 'info');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `appointments/${id}`);
-    }
+    setAppointments((prev) =>
+      prev.map((a) =>
+        a.id === id
+          ? {
+              ...a,
+              status,
+              ...(technicianNotes !== undefined ? { technicianNotes: technicianNotes.slice(0, 1000) } : {})
+            }
+          : a
+      )
+    );
+    addToast(`Job #${id} status updated to: ${status.replace('_', ' ').toUpperCase()}`, 'info');
   };
 
-  // Block Unavailable Dates/Times (Admin only — persisted to Firestore)
+  // Block Unavailable Dates/Times (Admin — persisted to localStorage)
   const blockSlot = async (
     date: string,
     timeSlot: string,
     reason: string
   ): Promise<{ success: boolean; error?: string }> => {
-    if (!firebaseUser || !isAdminAuthorized) {
-      const msg = 'Administrator login required to block dates or times.';
-      addToast(msg, 'error');
-      return { success: false, error: msg };
-    }
-
     const slotId = `block-${Date.now()}`;
-    const payload = {
+    const newSlot: BlockedSlot = {
       id: slotId,
       date,
       timeSlot,
-      reason: reason.trim().slice(0, 300),
-      createdBy: firebaseUser.uid,
-      createdAt: serverTimestamp()
+      reason: reason.trim().slice(0, 300)
     };
-
-    try {
-      await setDoc(doc(db, 'blockedSlots', slotId), payload);
-      addToast(`Blocked ${date} (${timeSlot}): "${reason}"`, 'warning');
-      return { success: true };
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `blockedSlots/${slotId}`);
-    }
+    setBlockedSlots((prev) => [...prev, newSlot]);
+    addToast(`Blocked ${date} (${timeSlot}): "${reason}"`, 'warning');
+    return { success: true };
   };
 
   const unblockSlot = async (id: string) => {
-    if (!firebaseUser || !isAdminAuthorized) {
-      addToast('Administrator login required to unblock dates or times.', 'error');
-      return;
-    }
-    try {
-      await deleteDoc(doc(db, 'blockedSlots', id));
-      addToast('Availability restriction removed. Customers can now book this time.', 'info');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `blockedSlots/${id}`);
-    }
+    setBlockedSlots((prev) => prev.filter((b) => b.id !== id));
+    addToast('Availability restriction removed. Customers can now book this time.', 'info');
   };
 
-  // Create or Update Customer Profile in Firestore
+  // Update Customer Profile in localStorage (syncs directly with Admin CRM)
   const updateCustomerProfile = async (
     updatedProfile: Partial<UserProfile>
   ): Promise<{ success: boolean; error?: string }> => {
-    if (!firebaseUser) {
-      return { success: false, error: 'You must be signed in to save your customer profile.' };
-    }
-    if (!firebaseUser.emailVerified) {
-      return {
-        success: false,
-        error: 'Please verify your email address first (check your inbox, then click "I Verified — Refresh").'
-      };
-    }
-
-    const name = (updatedProfile.name ?? currentUser.name ?? '').trim();
-    const email = (updatedProfile.email ?? currentUser.email ?? '').trim();
-    const phone = (updatedProfile.phone ?? currentUser.phone ?? '').trim();
-    const address = (updatedProfile.address ?? currentUser.address ?? '').trim();
-    const notes = (updatedProfile.notes ?? currentUser.notes ?? '').trim();
+    const target = activeCustomerRecord;
+    const name = (updatedProfile.name ?? target.name ?? '').trim();
+    const email = (updatedProfile.email ?? target.email ?? '').trim();
+    const phone = (updatedProfile.phone ?? target.phone ?? '').trim();
+    const address = (updatedProfile.address ?? target.address ?? '').trim();
+    const notes = (updatedProfile.notes ?? target.notes ?? '').trim();
 
     if (!name || name.length < 2) {
       return { success: false, error: 'Full name is required (at least 2 characters).' };
@@ -1769,86 +1025,57 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, error: 'A valid phone number (at least 7 digits) is required.' };
     }
 
-    const uid = firebaseUser.uid;
-    const customerRef = doc(db, 'customers', uid);
+    const updatedRecord: UserProfile = {
+      ...target,
+      name: name.slice(0, 120),
+      email: email.slice(0, 200),
+      phone: phone.slice(0, 30),
+      address: address.slice(0, 300),
+      notes: notes.slice(0, 1000),
+      role: 'customer'
+    };
 
-    try {
-      const existingSnap = await getDoc(customerRef);
-      if (existingSnap.exists() || customerProfileExists) {
-        await updateDoc(customerRef, {
-          name: name.slice(0, 120),
-          email: email.slice(0, 200),
-          phone: phone.slice(0, 30),
-          address: address.slice(0, 300),
-          notes: notes.slice(0, 1000),
-          updatedAt: serverTimestamp()
-        });
-        setCustomerProfileExists(true);
-        addToast('Your profile information was updated successfully!', 'success');
-      } else {
-        await setDoc(customerRef, {
-          uid,
-          name: name.slice(0, 120),
-          email: email.slice(0, 200),
-          phone: phone.slice(0, 30),
-          address: address.slice(0, 300),
-          notes: notes.slice(0, 1000),
-          role: 'customer',
-          createdAt: serverTimestamp(),
-          updatedAt: serverTimestamp()
-        });
-        setCustomerProfileExists(true);
-        addToast('Customer profile created and saved!', 'success');
-      }
-      return { success: true };
-    } catch (error) {
-      handleFirestoreError(error, OperationType.WRITE, `customers/${uid}`);
-    }
+    setCustomers((prev) => prev.map((c) => (c.id === target.id ? updatedRecord : c)));
+    addToast('Customer profile updated and synced across portals!', 'success');
+    return { success: true };
   };
 
-  // Admin updates customer record in Firestore
+  // Admin updates customer record in localStorage
   const updateCustomerRecordByAdmin = async (
     customerId: string,
     updatedData: Partial<UserProfile>
   ): Promise<{ success: boolean; error?: string }> => {
-    if (!isAdminAuthorized) {
-      return { success: false, error: 'Administrator authorization required.' };
-    }
-
-    try {
-      await updateDoc(
-        doc(db, 'customers', customerId),
-        sanitizeForFirestore({
-          name: updatedData.name?.trim().slice(0, 120),
-          email: updatedData.email?.trim().slice(0, 200),
-          phone: updatedData.phone?.trim().slice(0, 30),
-          address: updatedData.address?.trim().slice(0, 300),
-          notes: updatedData.notes?.trim().slice(0, 1000),
-          updatedAt: serverTimestamp()
-        })
-      );
-      addToast('Customer CRM record updated.', 'success');
-      return { success: true };
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `customers/${customerId}`);
-    }
+    setCustomers((prev) =>
+      prev.map((c) =>
+        c.id === customerId
+          ? {
+              ...c,
+              name: updatedData.name !== undefined ? updatedData.name.trim().slice(0, 120) : c.name,
+              email: updatedData.email !== undefined ? updatedData.email.trim().slice(0, 200) : c.email,
+              phone: updatedData.phone !== undefined ? updatedData.phone.trim().slice(0, 30) : c.phone,
+              address: updatedData.address !== undefined ? updatedData.address.trim().slice(0, 300) : c.address,
+              notes: updatedData.notes !== undefined ? updatedData.notes.trim().slice(0, 1000) : c.notes
+            }
+          : c
+      )
+    );
+    addToast('Customer CRM record updated.', 'success');
+    return { success: true };
   };
 
-  // Payment Management (Admin only)
+  // Payment Management (Admin)
   const recordPayment = async (paymentData: {
     appointmentId: string;
     amount: number;
     method: PaymentRecord['method'];
     notes?: string;
   }): Promise<PaymentRecord | null> => {
-    if (!isAdminAuthorized) return null;
-
     const appt = appointments.find((a) => a.id === paymentData.appointmentId);
     const payId = `PAY-${Date.now()}`;
     const txnRef = `TXN-${Math.floor(1000 + Math.random() * 9000)}-${paymentData.method.substring(0, 3).toUpperCase()}`;
     const payDate = new Date().toISOString().split('T')[0];
 
-    const payload = sanitizeForFirestore({
+    const newPayment: PaymentRecord = {
       id: payId,
       appointmentId: paymentData.appointmentId,
       customerName: appt ? appt.customerName : 'Direct Customer',
@@ -1857,33 +1084,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: 'paid',
       transactionRef: txnRef,
       date: payDate,
-      notes: paymentData.notes?.slice(0, 500),
-      createdAt: serverTimestamp()
-    });
+      notes: paymentData.notes?.slice(0, 500)
+    };
 
-    try {
-      await setDoc(doc(db, 'payments', payId), payload);
-      await updateDoc(doc(db, 'appointments', paymentData.appointmentId), {
-        paymentStatus: 'paid',
-        paymentMethod: paymentData.method,
-        paidAt: payDate,
-        updatedAt: serverTimestamp()
-      });
-      addToast(`Payment #${payId} of $${paymentData.amount} recorded successfully!`, 'success');
-      return {
-        id: payId,
-        appointmentId: paymentData.appointmentId,
-        customerName: appt ? appt.customerName : 'Direct Customer',
-        amount: paymentData.amount,
-        method: paymentData.method,
-        status: 'paid',
-        transactionRef: txnRef,
-        date: payDate,
-        notes: paymentData.notes
-      };
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, `payments/${payId}`);
-    }
+    setPayments((prev) => [newPayment, ...prev]);
+    setAppointments((prev) =>
+      prev.map((a) =>
+        a.id === paymentData.appointmentId
+          ? {
+              ...a,
+              paymentStatus: 'paid',
+              paymentMethod: paymentData.method,
+              paidAt: payDate
+            }
+          : a
+      )
+    );
+
+    addToast(`Payment #${payId} of $${paymentData.amount} recorded successfully!`, 'success');
+    return newPayment;
   };
 
   const updatePaymentStatus = async (
@@ -1891,53 +1110,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     status: Appointment['paymentStatus'],
     method?: PaymentRecord['method']
   ) => {
-    if (!isAdminAuthorized) return;
-    try {
-      await updateDoc(
-        doc(db, 'appointments', appointmentId),
-        sanitizeForFirestore({
-          paymentStatus: status,
-          ...(method ? { paymentMethod: method } : {}),
-          ...(status === 'paid' ? { paidAt: new Date().toISOString().split('T')[0] } : {}),
-          updatedAt: serverTimestamp()
-        })
-      );
-      addToast(`Appointment #${appointmentId} payment status marked as ${status.toUpperCase()}`, 'info');
-    } catch (error) {
-      handleFirestoreError(error, OperationType.UPDATE, `appointments/${appointmentId}`);
-    }
+    setAppointments((prev) =>
+      prev.map((a) =>
+        a.id === appointmentId
+          ? {
+              ...a,
+              paymentStatus: status,
+              ...(method ? { paymentMethod: method } : {}),
+              ...(status === 'paid' ? { paidAt: new Date().toISOString().split('T')[0] } : {})
+            }
+          : a
+      )
+    );
+    addToast(`Appointment #${appointmentId} payment status marked as ${status.toUpperCase()}`, 'info');
   };
 
   return (
     <AppContext.Provider
       value={{
-        firebaseUser,
-        authReady,
-        isEmailVerified,
-        isAdminAuthorized,
-        customerProfileExists,
-        profileLoading,
-        authError,
-        clearAuthError,
-        firestoreError,
-        clearFirestoreError,
-        signInWithGoogle,
-        signInWithEmail,
-        createAccountWithEmail,
-        resendVerificationEmail,
-        refreshAuthUser,
-        sendPasswordReset,
-        signOutUser,
         currentRole,
         setRole: handleSetRole,
         currentUser,
         setCurrentUser,
+        activeCustomerId: activeCustomerRecord.id,
+        setActiveCustomerId,
         selectedTechnicianId,
         setSelectedTechnicianId,
         mfaModalOpen,
         setMfaModalOpen,
         toggleAdminMFA,
-        adminAuthenticated: Boolean(firebaseUser && isAdminAuthorized),
+        adminAuthenticated: true,
+        adminProfile,
         switchToDedicatedView,
         sacramentoLocation: SACRAMENTO_LOCATION,
         visitFeePolicy: VISIT_FEE_POLICY,

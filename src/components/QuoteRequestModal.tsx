@@ -1,14 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { X, ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, Upload, LogIn } from 'lucide-react';
+import { X, ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, Upload } from 'lucide-react';
 import { MAIN_SERVICE_CATEGORIES, REMOVAL_NEEDS_OPTIONS, TIMING_OPTIONS } from '../data/initialData';
 import { QuoteRequest } from '../types';
-import { EmailVerificationBanner } from './AuthCard';
 
 export const QuoteRequestModal: React.FC = () => {
   const {
-    firebaseUser,
-    signInWithGoogle,
     quoteModalOpen,
     setQuoteModalOpen,
     currentUser,
@@ -212,11 +209,6 @@ export const QuoteRequestModal: React.FC = () => {
   // Submit Quote Request
   const handleSubmit = async () => {
     setErrorMessage('');
-    if (!firebaseUser) {
-      setErrorMessage('Please sign in with Google below so your quote request is saved to your customer account.');
-      return;
-    }
-
     setIsSubmitting(true);
 
     const fullPropertyAddress = `${streetAddress}, ${city}, ${state} ${zipCode}`.trim();
@@ -224,7 +216,7 @@ export const QuoteRequestModal: React.FC = () => {
 
     try {
       const created = await submitQuoteRequest({
-        customerId: firebaseUser.uid,
+        customerId: currentUser.id,
         customerName: fullName,
         email,
         phone,
@@ -250,7 +242,7 @@ export const QuoteRequestModal: React.FC = () => {
       if (created) {
         setSubmittedQuote(created);
       } else {
-        setErrorMessage('Please sign in to submit and save your quote request.');
+        setErrorMessage('There was an issue saving your request. Please try again.');
       }
     } catch {
       setIsSubmitting(false);
@@ -898,36 +890,6 @@ export const QuoteRequestModal: React.FC = () => {
                       "We offer free quotes for all pressure-washing projects, including on-site assessments. Services start at $250. Pricing varies depending on the type of service and the specific needs of your property. All quotes are all-inclusive, covering fuel, travel expenses, and applicable taxes. Estimates based on photographs are preliminary and subject to owner review."
                     </p>
                   </div>
-
-                  {!firebaseUser ? (
-                    <div className="p-3.5 rounded-2xl bg-[#E8EEF1] border border-[#D5E0E6] space-y-2.5">
-                      <div className="text-xs text-[#222222]">
-                        <span className="font-bold">Sign in to save your quote:</span> Sign in with Google or create/sign in with Email &amp; Password so your quote request saves to your account.
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void signInWithGoogle('customer')}
-                          className="btn-rounded px-4 py-2 bg-[#263F50] hover:bg-[#1A2E3D] text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-                        >
-                          <LogIn className="w-3.5 h-3.5" />
-                          <span>Sign In with Google</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setQuoteModalOpen(false);
-                            switchToDedicatedView('client');
-                          }}
-                          className="btn-rounded px-4 py-2 bg-white hover:bg-[#F8F9F7] text-[#263F50] border border-[#D5E0E6] text-xs font-semibold cursor-pointer"
-                        >
-                          Email Sign In / Create Account
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <EmailVerificationBanner compact />
-                  )}
                 </div>
               )}
             </>

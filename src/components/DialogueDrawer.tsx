@@ -1,12 +1,9 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { MessageSquare, X, Send, Download, Copy, Check, DollarSign, LogIn } from 'lucide-react';
+import { MessageSquare, X, Send, Download, Copy, Check, DollarSign } from 'lucide-react';
 
 export const DialogueDrawer: React.FC = () => {
   const {
-    firebaseUser,
-    isAdminAuthorized,
-    signInWithGoogle,
     dialogueDrawerOpen,
     setDialogueDrawerOpen,
     dialogueMessages,
@@ -17,8 +14,7 @@ export const DialogueDrawer: React.FC = () => {
     setActiveDialogueThreadId,
     currentRole,
     currentUser,
-    customers,
-    switchToDedicatedView
+    customers
   } = useApp();
 
   const [messageInput, setMessageInput] = useState('');
@@ -27,23 +23,23 @@ export const DialogueDrawer: React.FC = () => {
 
   if (!dialogueDrawerOpen) return null;
 
-  const targetThreadId = isAdminAuthorized ? activeDialogueThreadId : firebaseUser?.uid || '';
+  const canSwitchThread = currentRole === 'admin' || currentRole === 'technician';
+  const targetThreadId = canSwitchThread ? activeDialogueThreadId : currentUser.id;
   const currentThreadMessages = dialogueMessages.filter((m) => m.threadId === targetThreadId);
   const activeCustomer = customers.find((c) => c.id === targetThreadId) || {
     id: targetThreadId,
     name:
       currentThreadMessages[0]?.customerName ||
       currentUser.name ||
-      firebaseUser?.displayName ||
       'Customer Account',
-    email: firebaseUser?.email || '',
-    phone: '',
-    address: 'Sacramento, CA'
+    email: currentUser.email || '',
+    phone: currentUser.phone || '',
+    address: currentUser.address || 'Sacramento, CA'
   };
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!firebaseUser || !messageInput.trim()) return;
+    if (!messageInput.trim()) return;
 
     const senderRole = currentRole === 'customer' ? 'client' : currentRole === 'technician' ? 'technician' : 'admin';
     const senderName =
@@ -51,7 +47,7 @@ export const DialogueDrawer: React.FC = () => {
         ? 'Dispatch / Admin'
         : currentRole === 'technician'
         ? `${currentUser.name || 'Field Tech'} (Field Technician)`
-        : `${currentUser.name || firebaseUser.displayName || 'Customer'} (Homeowner)`;
+        : `${currentUser.name || 'Customer'} (Homeowner)`;
 
     const priceNum = directPriceInput ? Number(directPriceInput) : undefined;
 
@@ -94,7 +90,7 @@ export const DialogueDrawer: React.FC = () => {
                 </span>
               </div>
               <div className="text-[11px] text-[#555555]">
-                Thread: {firebaseUser ? activeCustomer.name : 'Sign in required'}
+                Thread: {activeCustomer.name}
               </div>
             </div>
           </div>
@@ -108,43 +104,11 @@ export const DialogueDrawer: React.FC = () => {
           </button>
         </div>
 
-        {!firebaseUser ? (
-          <div className="flex-1 flex flex-col items-center justify-center p-8 text-center space-y-4 bg-[#F8F9F7]">
-            <MessageSquare className="w-10 h-10 text-[#263F50]" />
-            <div className="space-y-1.5">
-              <h4 className="text-base font-bold text-[#222222]">Sign In to Access Your Dialogue Log</h4>
-              <p className="text-xs text-[#555555] max-w-xs mx-auto">
-                Customer conversations and dispatch transcripts are private to your authenticated account.
-              </p>
-            </div>
-            <div className="flex flex-col gap-2 w-full max-w-xs">
-              <button
-                type="button"
-                onClick={() => void signInWithGoogle('customer')}
-                className="btn-rounded px-5 py-2.5 bg-[#263F50] hover:bg-[#1A2E3D] text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
-              >
-                <LogIn className="w-3.5 h-3.5" />
-                <span>Sign In with Google</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setDialogueDrawerOpen(false);
-                  switchToDedicatedView('client');
-                }}
-                className="btn-rounded px-5 py-2.5 bg-white hover:bg-[#E8EEF1] text-[#263F50] border border-[#E8EEF1] text-xs font-semibold cursor-pointer"
-              >
-                Email Sign In / Create Account
-              </button>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Action Bar: Thread selection & Export Actions */}
-            <div className="p-3 bg-white border-b border-[#E8EEF1] flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
-              <div className="flex items-center gap-1.5">
-                <span className="text-[#555555] font-semibold">Thread:</span>
-                {isAdminAuthorized && customers.length > 0 ? (
+        {/* Action Bar: Thread selection & Export Actions */}
+        <div className="p-3 bg-white border-b border-[#E8EEF1] flex flex-wrap items-center justify-between gap-2 text-xs shrink-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[#555555] font-semibold">Thread:</span>
+            {canSwitchThread && customers.length > 0 ? (
                   <select
                     value={activeDialogueThreadId}
                     onChange={(e) => setActiveDialogueThreadId(e.target.value)}
@@ -280,8 +244,6 @@ export const DialogueDrawer: React.FC = () => {
             </button>
           </div>
         </form>
-        </>
-        )}
       </div>
     </div>
   );

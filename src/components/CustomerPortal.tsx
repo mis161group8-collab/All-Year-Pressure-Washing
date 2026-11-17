@@ -16,24 +16,16 @@ import {
   Download,
   Copy,
   Check,
-  DollarSign,
-  LogOut,
-  UserPlus,
-  ShieldCheck
+  DollarSign
 } from 'lucide-react';
 import { Appointment } from '../types';
-import { AuthCard, EmailVerificationBanner } from './AuthCard';
 
 export const CustomerPortal: React.FC = () => {
   const {
-    firebaseUser,
-    authReady,
-    customerProfileExists,
-    profileLoading,
-    firestoreError,
-    clearFirestoreError,
-    signOutUser,
     currentUser,
+    activeCustomerId,
+    setActiveCustomerId,
+    customers,
     updateCustomerProfile,
     appointments,
     quotes,
@@ -72,17 +64,14 @@ export const CustomerPortal: React.FC = () => {
   const [cancellingAppt, setCancellingAppt] = useState<Appointment | null>(null);
   const [cancelReason, setCancelReason] = useState('');
 
-  // Sync profile fields whenever authenticated user/profile changes
+  // Sync profile fields whenever selected demo customer profile changes
   useEffect(() => {
     setProfileName(currentUser.name || '');
     setProfileEmail(currentUser.email || '');
     setProfilePhone(currentUser.phone || '');
     setProfileAddress(currentUser.address || '');
     setProfileNotes(currentUser.notes || '');
-    if (firebaseUser && !profileLoading && !customerProfileExists) {
-      setIsEditingProfile(true);
-    }
-  }, [currentUser, firebaseUser, customerProfileExists, profileLoading]);
+  }, [currentUser]);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,28 +97,11 @@ export const CustomerPortal: React.FC = () => {
     }
   };
 
-  if (!authReady) {
-    return (
-      <div className="py-16 max-w-xl mx-auto px-4 text-center text-[#555555] text-sm">
-        Checking customer authentication...
-      </div>
-    );
-  }
-
-  if (!firebaseUser) {
-    return (
-      <AuthCard
-        portalType="customer"
-        badgeText="Customer Portal · Account Access"
-        title="Customer Sign-In or Create Account"
-        description="Sign in or create a free customer account to view your scheduled appointments, request quotes, check service history, and manage your profile."
-        googleButtonLabel="Continue with Google"
-        helperFooter="Your appointments, quotes, and profile are private and visible only to your signed-in account."
-      />
-    );
-  }
-
-  const myAppointments = appointments.filter((a) => a.customerId === firebaseUser.uid);
+  const myAppointments = appointments.filter(
+    (a) =>
+      a.customerId === currentUser.id ||
+      (Boolean(currentUser.email) && a.customerEmail.toLowerCase() === currentUser.email.toLowerCase())
+  );
 
   const upcomingAppointments = myAppointments.filter(
     (a) => a.status === 'scheduled' || a.status === 'en_route' || a.status === 'in_progress'
@@ -139,7 +111,11 @@ export const CustomerPortal: React.FC = () => {
     (a) => a.status === 'completed' || a.status === 'cancelled'
   );
 
-  const myQuotes = quotes.filter((q) => q.customerId === firebaseUser.uid);
+  const myQuotes = quotes.filter(
+    (q) =>
+      q.customerId === currentUser.id ||
+      (Boolean(currentUser.email) && q.email.toLowerCase() === currentUser.email.toLowerCase())
+  );
 
   const handleStartReschedule = (appt: Appointment) => {
     setReschedulingAppt(appt);
@@ -169,81 +145,40 @@ export const CustomerPortal: React.FC = () => {
 
   return (
     <div className="py-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-[#222222]">
-      {/* Top Header & Authenticated Customer Session */}
+      {/* Top Header & Classroom Demo Customer Switcher */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-8 border-b border-[#E8EEF1]">
         <div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#E8EEF1] text-[#263F50] border border-[#D5E0E6]">
-              Customer Portal · Sacramento Core
+              Customer Portal · Classroom Demonstration (Fictional Data)
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold text-[#222222] mt-1.5">
-            Welcome, {currentUser.name || firebaseUser.displayName || firebaseUser.email}
+            Welcome, {currentUser.name || 'Demo Customer'}
           </h1>
           <p className="text-sm text-[#555555]">
             Manage your exterior cleaning appointments, quote estimates, and service history.
           </p>
         </div>
 
-        {/* Authenticated User & Sign Out */}
+        {/* Fictional Demo Customer Selector */}
         <div className="flex flex-wrap items-center gap-2.5">
-          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full border border-[#E8EEF1] bg-white text-xs text-[#222222] shadow-2xs">
-            <ShieldCheck className="w-3.5 h-3.5 text-[#263F50]" />
-            <span className="font-semibold truncate max-w-[200px]">{firebaseUser.email}</span>
+          <div className="flex items-center gap-3 bg-white p-2 rounded-2xl border border-[#E8EEF1] shadow-xs">
+            <label className="text-xs font-semibold text-[#555555] pl-2">Demo Customer:</label>
+            <select
+              value={activeCustomerId}
+              onChange={(e) => setActiveCustomerId(e.target.value)}
+              className="px-3 py-1.5 rounded-full border border-[#E8EEF1] text-xs font-bold bg-[#F8F9F7] text-[#263F50] focus:outline-none"
+            >
+              {customers.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.email})
+                </option>
+              ))}
+            </select>
           </div>
-          <button
-            type="button"
-            onClick={() => void signOutUser()}
-            className="btn-rounded px-3.5 py-1.5 bg-white hover:bg-[#E8EEF1] text-[#263F50] border border-[#E8EEF1] text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>Sign Out</span>
-          </button>
         </div>
       </div>
-
-      {firestoreError && (
-        <div className="mt-6 p-4 rounded-2xl bg-rose-50 border border-rose-200 flex items-start justify-between gap-3 text-xs text-rose-800">
-          <div className="flex items-start gap-2.5">
-            <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-            <div>
-              <div className="font-bold">Firebase Connection / Permission Error</div>
-              <div className="mt-0.5">{firestoreError}</div>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={clearFirestoreError}
-            className="text-[11px] font-semibold text-rose-700 hover:text-rose-900 underline shrink-0 cursor-pointer"
-          >
-            Dismiss
-          </button>
-        </div>
-      )}
-
-      <EmailVerificationBanner />
-
-      {/* Prompt to Create Customer Profile if not yet created */}
-      {!profileLoading && !customerProfileExists && activeTab !== 'profile' && (
-        <div className="mt-6 p-4 rounded-2xl bg-[#E8EEF1] border border-[#D5E0E6] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5 text-xs text-[#222222]">
-            <UserPlus className="w-4 h-4 text-[#263F50] shrink-0" />
-            <span>
-              <strong>Complete Your Customer Profile:</strong> Save your name, phone number, email, and address so future quotes and bookings auto-fill automatically.
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setIsEditingProfile(true);
-              setActiveTab('profile');
-            }}
-            className="btn-rounded px-4 py-2 bg-[#263F50] hover:bg-[#1A2E3D] text-white text-xs font-semibold shrink-0 cursor-pointer"
-          >
-            Create Customer Profile
-          </button>
-        </div>
-      )}
 
       {/* Navigation tabs */}
       <div className="flex items-center gap-2 py-6 overflow-x-auto">
@@ -640,10 +575,10 @@ export const CustomerPortal: React.FC = () => {
                 e.preventDefault();
                 if (!dialogueInput.trim()) return;
                 await sendDialogueMessage(
-                  firebaseUser.uid,
-                  currentUser.name || firebaseUser.displayName || 'Customer',
+                  currentUser.id,
+                  currentUser.name || 'Demo Customer',
                   'client',
-                  `${currentUser.name || firebaseUser.displayName || 'Customer'} (Client)`,
+                  `${currentUser.name || 'Demo Customer'} (Client)`,
                   dialogueInput.trim()
                 );
                 setDialogueInput('');
@@ -669,21 +604,19 @@ export const CustomerPortal: React.FC = () => {
         </div>
       )}
 
-      {/* Tab 4: Create / Edit Customer Profile & Preferences */}
+      {/* Tab 4: Edit Customer Profile & Preferences */}
       {activeTab === 'profile' && (
         <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#E8EEF1] shadow-sm max-w-2xl">
           <div className="flex items-center justify-between pb-6 border-b border-[#E8EEF1]">
             <div>
               <h2 className="text-lg font-bold text-[#222222]">
-                {customerProfileExists ? 'Customer Profile & Contact Information' : 'Create Customer Profile'}
+                Customer Profile &amp; Contact Information
               </h2>
               <p className="text-xs text-[#555555]">
-                {customerProfileExists
-                  ? 'Keep your contact details and property preferences saved for automatic reuse in quotes and bookings.'
-                  : 'Save your name, phone number, email, and optional address once so future quote requests and bookings auto-fill.'}
+                Keep your contact details and property preferences saved for automatic reuse in quotes and bookings.
               </p>
             </div>
-            {customerProfileExists && !isEditingProfile && (
+            {!isEditingProfile && (
               <button
                 type="button"
                 onClick={() => {
@@ -711,12 +644,12 @@ export const CustomerPortal: React.FC = () => {
               </label>
               <input
                 type="text"
-                disabled={!isEditingProfile && customerProfileExists}
+                disabled={!isEditingProfile}
                 value={profileName}
                 onChange={(e) => setProfileName(e.target.value)}
                 placeholder="e.g. Alex Johnson"
                 className={`w-full px-4 py-2.5 rounded-2xl border text-sm transition-colors ${
-                  isEditingProfile || !customerProfileExists
+                  isEditingProfile
                     ? 'border-[#D5E0E6] bg-white focus:outline-none focus:border-[#263F50]'
                     : 'border-[#E8EEF1] bg-[#F8F9F7] text-[#555555]'
                 }`}
@@ -731,12 +664,12 @@ export const CustomerPortal: React.FC = () => {
                 </label>
                 <input
                   type="email"
-                  disabled={!isEditingProfile && customerProfileExists}
+                  disabled={!isEditingProfile}
                   value={profileEmail}
                   onChange={(e) => setProfileEmail(e.target.value)}
                   placeholder="e.g. alex@example.com"
                   className={`w-full px-4 py-2.5 rounded-2xl border text-sm transition-colors ${
-                    isEditingProfile || !customerProfileExists
+                    isEditingProfile
                       ? 'border-[#D5E0E6] bg-white focus:outline-none focus:border-[#263F50]'
                       : 'border-[#E8EEF1] bg-[#F8F9F7] text-[#555555]'
                   }`}
@@ -750,12 +683,12 @@ export const CustomerPortal: React.FC = () => {
                 </label>
                 <input
                   type="tel"
-                  disabled={!isEditingProfile && customerProfileExists}
+                  disabled={!isEditingProfile}
                   value={profilePhone}
                   onChange={(e) => setProfilePhone(e.target.value)}
                   placeholder="e.g. (916) 555-0199"
                   className={`w-full px-4 py-2.5 rounded-2xl border text-sm transition-colors ${
-                    isEditingProfile || !customerProfileExists
+                    isEditingProfile
                       ? 'border-[#D5E0E6] bg-white focus:outline-none focus:border-[#263F50]'
                       : 'border-[#E8EEF1] bg-[#F8F9F7] text-[#555555]'
                   }`}
@@ -770,12 +703,12 @@ export const CustomerPortal: React.FC = () => {
               </label>
               <input
                 type="text"
-                disabled={!isEditingProfile && customerProfileExists}
+                disabled={!isEditingProfile}
                 value={profileAddress}
                 onChange={(e) => setProfileAddress(e.target.value)}
                 placeholder="e.g. 2450 J Street, Sacramento, CA 95816"
                 className={`w-full px-4 py-2.5 rounded-2xl border text-sm transition-colors ${
-                  isEditingProfile || !customerProfileExists
+                  isEditingProfile
                     ? 'border-[#D5E0E6] bg-white focus:outline-none focus:border-[#263F50]'
                     : 'border-[#E8EEF1] bg-[#F8F9F7] text-[#555555]'
                 }`}
@@ -788,19 +721,19 @@ export const CustomerPortal: React.FC = () => {
               </label>
               <textarea
                 rows={2}
-                disabled={!isEditingProfile && customerProfileExists}
+                disabled={!isEditingProfile}
                 value={profileNotes}
                 onChange={(e) => setProfileNotes(e.target.value)}
                 placeholder="e.g. Side gate code, pets inside, hose spigot location."
                 className={`w-full px-4 py-2.5 rounded-2xl border text-sm transition-colors ${
-                  isEditingProfile || !customerProfileExists
+                  isEditingProfile
                     ? 'border-[#D5E0E6] bg-white focus:outline-none focus:border-[#263F50]'
                     : 'border-[#E8EEF1] bg-[#F8F9F7] text-[#555555]'
                 }`}
               />
             </div>
 
-            {(isEditingProfile || !customerProfileExists) && (
+            {isEditingProfile && (
               <div className="flex items-center gap-3 pt-3">
                 <button
                   type="submit"
@@ -808,26 +741,18 @@ export const CustomerPortal: React.FC = () => {
                   className="btn-rounded px-6 py-2.5 bg-[#263F50] hover:bg-[#1A2E3D] text-white font-semibold text-xs flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-60"
                 >
                   <Save className="w-3.5 h-3.5" />
-                  <span>
-                    {savingProfile
-                      ? 'Saving...'
-                      : customerProfileExists
-                      ? 'Save Changes'
-                      : 'Create Customer Profile'}
-                  </span>
+                  <span>{savingProfile ? 'Saving...' : 'Save Changes'}</span>
                 </button>
-                {customerProfileExists && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIsEditingProfile(false);
-                      setProfileError(null);
-                    }}
-                    className="btn-rounded px-4 py-2.5 bg-[#F8F9F7] hover:bg-[#E8EEF1] text-[#555555] font-semibold text-xs cursor-pointer"
-                  >
-                    Cancel
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditingProfile(false);
+                    setProfileError(null);
+                  }}
+                  className="btn-rounded px-4 py-2.5 bg-[#F8F9F7] hover:bg-[#E8EEF1] text-[#555555] font-semibold text-xs cursor-pointer"
+                >
+                  Cancel
+                </button>
               </div>
             )}
           </form>
