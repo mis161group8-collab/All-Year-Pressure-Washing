@@ -5,6 +5,11 @@ import {
   signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  sendEmailVerification,
+  sendPasswordResetEmail,
+  updateProfile,
   signOut
 } from 'firebase/auth';
 import {
@@ -85,6 +90,7 @@ interface AppContextType {
   // Real Firebase Auth & RBAC
   firebaseUser: User | null;
   authReady: boolean;
+  isEmailVerified: boolean;
   isAdminAuthorized: boolean;
   customerProfileExists: boolean;
   profileLoading: boolean;
@@ -92,7 +98,21 @@ interface AppContextType {
   clearAuthError: () => void;
   firestoreError: string | null;
   clearFirestoreError: () => void;
-  signInWithGoogle: (expectedRole?: 'customer' | 'admin') => Promise<{ success: boolean; error?: string }>;
+  signInWithGoogle: (expectedRole?: 'customer' | 'admin' | 'technical') => Promise<{ success: boolean; error?: string }>;
+  signInWithEmail: (
+    email: string,
+    password: string,
+    expectedRole?: 'customer' | 'admin' | 'technical'
+  ) => Promise<{ success: boolean; error?: string; needsVerification?: boolean }>;
+  createAccountWithEmail: (
+    name: string,
+    email: string,
+    password: string,
+    expectedRole?: 'customer' | 'admin' | 'technical'
+  ) => Promise<{ success: boolean; error?: string; needsVerification?: boolean; message?: string }>;
+  resendVerificationEmail: () => Promise<{ success: boolean; error?: string; message?: string }>;
+  refreshAuthUser: () => Promise<{ verified: boolean; isAdmin: boolean }>;
+  sendPasswordReset: (email: string) => Promise<{ success: boolean; error?: string; message?: string }>;
   signOutUser: () => Promise<void>;
 
   // Current session & view state
@@ -242,6 +262,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Firebase Auth states
   const [firebaseUser, setFirebaseUser] = useState<User | null>(null);
   const [authReady, setAuthReady] = useState<boolean>(false);
+  const [isEmailVerified, setIsEmailVerified] = useState<boolean>(false);
   const [isAdminAuthorized, setIsAdminAuthorized] = useState<boolean>(false);
   const [customerProfileExists, setCustomerProfileExists] = useState<boolean>(false);
   const [profileLoading, setProfileLoading] = useState<boolean>(false);
@@ -321,6 +342,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       if (!user) {
         setFirebaseUser(null);
+        setIsEmailVerified(false);
         setIsAdminAuthorized(false);
         setCustomerProfileExists(false);
         setCurrentUser(GUEST_USER);
@@ -350,6 +372,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
 
+      setIsEmailVerified(Boolean(user.emailVerified));
       setIsAdminAuthorized(adminStatus);
       setFirebaseUser(user);
       setActiveDialogueThreadId(user.uid);
@@ -377,7 +400,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
 
         const signedUser = result.user;
-        if (pendingRole === 'admin') {
+        if (pendingRole === 'admin' || pendingRole === 'technical') {
           let isAdmin = Boolean(signedUser.emailVerified && signedUser.email?.toLowerCase() === ADMIN_EMAIL);
           if (!isAdmin && signedUser.emailVerified) {
             try {
@@ -390,13 +413,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
           }
           if (!isAdmin) {
-            const msg = `Access denied: ${signedUser.email || 'This account'} is not authorized for Administrator access.`;
+            const label = pendingRole === 'technical' ? 'Technician Dispatch' : 'Administrator';
+            const msg = `Access denied: ${signedUser.email || 'This account'} is not authorized for ${label} access.`;
             setAuthError(msg);
             addToast(msg, 'error');
             return;
           }
-          setCurrentRole('admin');
-          addToast('Administrator authenticated successfully.', 'success');
+          setCurrentRole(pendingRole === 'technical' ? 'technician' : 'admin');
+          addToast(
+            pendingRole === 'technical'
+              ? 'Dispatch Technician access authenticated.'
+              : 'Administrator authenticated successfully.',
+            'success'
+          );
         } else {
           setCurrentRole('customer');
           addToast(`Signed in as ${signedUser.email}`, 'success');
@@ -665,9 +694,72 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [authReady, firebaseUser, isAdminAuthorized]);
 
+  const checkUserAdminStatus = async (user: User): Promise<boolean> => {
+    let isAdmin = Boolean(user.emailVerified && user.email?.toLowerCase() === ADMIN_EMAIL);
+    if (!isAdmin && user.emailVerified) {
+      try {
+        const adminDoc = await getDoc(doc(db, 'admins', user.uid));
+        if (adminDoc.exists() && adminDoc.data()?.role === 'admin') {
+          isAdmin = true;
+        }
+      } catch {
+        isAdmin = false;
+      }
+    }
+    return isAdmin;
+  };
+
+  const mapAuthErrorMessage = (error: unknown, isGoogle = false): string => {
+    const code = (error as { code?: string })?.code || '';
+    const rawMsg = error instanceof Error ? error.message : 'Authentication failed. Please try again.';
+    const hostname = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
+
+    if (code === 'auth/unauthorized-domain' || rawMsg.includes('auth/unauthorized-domain')) {
+      return `Google Sign-In cannot run on "${hostname}" until that domain is added in Firebase Console → Authentication → Settings → Authorized domains. You can Sign In or Create an Account with Email & Password right here without waiting.`;
+    }
+    if (code === 'auth/popup-blocked' || rawMsg.includes('auth/popup-blocked')) {
+      return 'Your browser blocked the Google Sign-In popup. Allow popups for this website, or use Email & Password Sign-In above.';
+    }
+    if (
+      code === 'auth/popup-closed-by-user' ||
+      code === 'auth/cancelled-popup-request' ||
+      rawMsg.includes('popup-closed-by-user')
+    ) {
+      return 'Google Sign-In was closed before finishing. Please try again.';
+    }
+    if (code === 'auth/email-already-in-use') {
+      return 'An account with this email already exists (either via Email/Password or Google). Please switch to the Sign In tab, click Continue with Google, or use Forgot Password.';
+    }
+    if (
+      code === 'auth/invalid-credential' ||
+      code === 'auth/wrong-password' ||
+      code === 'auth/user-not-found'
+    ) {
+      return 'Invalid email or password. If you previously signed in with Google, please click "Continue with Google" or use Forgot Password.';
+    }
+    if (code === 'auth/invalid-email') {
+      return 'Please enter a valid email address.';
+    }
+    if (code === 'auth/weak-password') {
+      return 'Password must be at least 6 characters long.';
+    }
+    if (code === 'auth/too-many-requests') {
+      return 'Too many attempts. Please wait a moment and try again.';
+    }
+    if (code === 'auth/operation-not-allowed') {
+      return isGoogle
+        ? 'Google Sign-In is not enabled in Firebase Console → Authentication → Sign-in method.'
+        : 'Email/Password Sign-In is not enabled yet. Enable "Email/Password" in Firebase Console → Authentication → Sign-in method.';
+    }
+    if (code === 'auth/network-request-failed') {
+      return 'Network error while connecting to Firebase Authentication. Please check your internet connection and try again.';
+    }
+    return rawMsg;
+  };
+
   // Sign In with Google
   const signInWithGoogle = async (
-    expectedRole: 'customer' | 'admin' = 'customer'
+    expectedRole: 'customer' | 'admin' | 'technical' = 'customer'
   ): Promise<{ success: boolean; error?: string }> => {
     try {
       // Trigger signInWithPopup immediately on the click stack before any React state updates
@@ -677,26 +769,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const cred = await popupPromise;
       const signedUser = cred.user;
 
-      if (expectedRole === 'admin') {
-        let isAdmin = Boolean(signedUser.emailVerified && signedUser.email?.toLowerCase() === ADMIN_EMAIL);
-        if (!isAdmin && signedUser.emailVerified) {
-          try {
-            const adminDoc = await getDoc(doc(db, 'admins', signedUser.uid));
-            if (adminDoc.exists() && adminDoc.data()?.role === 'admin') {
-              isAdmin = true;
-            }
-          } catch {
-            isAdmin = false;
-          }
-        }
+      if (expectedRole === 'admin' || expectedRole === 'technical') {
+        const isAdmin = await checkUserAdminStatus(signedUser);
         if (!isAdmin) {
-          const msg = `Access denied: ${signedUser.email || 'This account'} is not authorized for Administrator access.`;
+          const label = expectedRole === 'technical' ? 'Technician Dispatch' : 'Administrator';
+          const msg = `Access denied: ${signedUser.email || 'This account'} is not authorized for ${label} access.`;
           setAuthError(msg);
           addToast(msg, 'error');
           return { success: false, error: msg };
         }
-        setCurrentRole('admin');
-        addToast('Administrator authenticated successfully.', 'success');
+        setCurrentRole(expectedRole === 'technical' ? 'technician' : 'admin');
+        addToast(
+          expectedRole === 'technical'
+            ? 'Dispatch Technician access authenticated.'
+            : 'Administrator authenticated successfully.',
+          'success'
+        );
         return { success: true };
       }
 
@@ -706,7 +794,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (error) {
       const code = (error as { code?: string })?.code || '';
       const rawMsg = error instanceof Error ? error.message : 'Authentication cancelled or rejected.';
-      const hostname = typeof window !== 'undefined' ? window.location.hostname : 'this domain';
       const isTopLevelWindow = typeof window !== 'undefined' && window.self === window.top;
 
       // On standalone top-level deployments (such as Vercel), fall back to redirect sign-in
@@ -716,41 +803,202 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           sessionStorage.setItem('aypw_pending_auth_role', expectedRole);
           sessionStorage.setItem(
             'aypw_pending_auth_view',
-            expectedRole === 'admin' ? 'admin_dashboard' : 'customer_portal'
+            expectedRole === 'admin'
+              ? 'admin_dashboard'
+              : expectedRole === 'technical'
+              ? 'tech_portal'
+              : 'customer_portal'
           );
           await signInWithRedirect(auth, googleProvider, popupResolver);
           return { success: true };
         } catch (redirectError) {
           sessionStorage.removeItem('aypw_pending_auth_role');
           sessionStorage.removeItem('aypw_pending_auth_view');
-          const redirectMsg =
-            redirectError instanceof Error
-              ? redirectError.message
-              : 'Your browser blocked the Google Sign-In popup. Please allow popups for this website and click Sign In again.';
+          const redirectMsg = mapAuthErrorMessage(redirectError, true);
           setAuthError(redirectMsg);
           addToast(redirectMsg, 'error');
           return { success: false, error: redirectMsg };
         }
       }
 
-      let friendlyMsg = rawMsg;
+      const friendlyMsg = mapAuthErrorMessage(error, true);
+      setAuthError(friendlyMsg);
+      addToast(friendlyMsg, 'error');
+      return { success: false, error: friendlyMsg };
+    }
+  };
 
-      if (code === 'auth/unauthorized-domain' || rawMsg.includes('auth/unauthorized-domain')) {
-        friendlyMsg = `This website domain (${hostname}) is not authorized in Firebase Authentication yet. Add "${hostname}" in Firebase Console → Authentication → Settings → Authorized domains, then try signing in again.`;
-      } else if (code === 'auth/popup-blocked' || rawMsg.includes('auth/popup-blocked')) {
-        friendlyMsg = 'Your browser blocked the Google Sign-In popup. Please allow popups for this website and click Sign In again.';
-      } else if (
-        code === 'auth/popup-closed-by-user' ||
-        code === 'auth/cancelled-popup-request' ||
-        rawMsg.includes('popup-closed-by-user')
-      ) {
-        friendlyMsg = 'Google Sign-In was closed before finishing. Please try again.';
-      } else if (code === 'auth/operation-not-allowed') {
-        friendlyMsg = 'Google Sign-In is not enabled in Firebase Console → Authentication → Sign-in method.';
-      } else if (code === 'auth/network-request-failed') {
-        friendlyMsg = 'Network error while connecting to Google Sign-In. Please check your internet connection or ad-blocker and try again.';
+  // Sign In with Email & Password
+  const signInWithEmail = async (
+    email: string,
+    password: string,
+    expectedRole: 'customer' | 'admin' | 'technical' = 'customer'
+  ): Promise<{ success: boolean; error?: string; needsVerification?: boolean }> => {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !password) {
+      const msg = 'Please enter both your email address and password.';
+      setAuthError(msg);
+      return { success: false, error: msg };
+    }
+
+    try {
+      setAuthError(null);
+      const cred = await signInWithEmailAndPassword(auth, trimmedEmail, password);
+      const signedUser = cred.user;
+      setIsEmailVerified(Boolean(signedUser.emailVerified));
+
+      if (!signedUser.emailVerified) {
+        const verifyMsg =
+          'Account signed in, but your email is not verified yet. Click the verification link in your inbox, then click "I Verified — Refresh".';
+        addToast(verifyMsg, 'warning');
+        return { success: true, needsVerification: true };
       }
 
+      if (expectedRole === 'admin' || expectedRole === 'technical') {
+        const isAdmin = await checkUserAdminStatus(signedUser);
+        if (!isAdmin) {
+          const label = expectedRole === 'technical' ? 'Technician Dispatch' : 'Administrator';
+          const msg = `Access denied: ${signedUser.email || 'This account'} is not authorized for ${label} access.`;
+          setAuthError(msg);
+          addToast(msg, 'error');
+          return { success: false, error: msg };
+        }
+        setCurrentRole(expectedRole === 'technical' ? 'technician' : 'admin');
+        addToast(
+          expectedRole === 'technical'
+            ? 'Dispatch Technician access authenticated.'
+            : 'Administrator authenticated successfully.',
+          'success'
+        );
+        return { success: true };
+      }
+
+      setCurrentRole('customer');
+      addToast(`Signed in as ${signedUser.email}`, 'success');
+      return { success: true };
+    } catch (error) {
+      const friendlyMsg = mapAuthErrorMessage(error, false);
+      setAuthError(friendlyMsg);
+      addToast(friendlyMsg, 'error');
+      return { success: false, error: friendlyMsg };
+    }
+  };
+
+  // Create Account with Email & Password
+  const createAccountWithEmail = async (
+    name: string,
+    email: string,
+    password: string,
+    expectedRole: 'customer' | 'admin' | 'technical' = 'customer'
+  ): Promise<{ success: boolean; error?: string; needsVerification?: boolean; message?: string }> => {
+    const trimmedName = name.trim();
+    const trimmedEmail = email.trim();
+
+    if (!trimmedName || trimmedName.length < 2) {
+      const msg = 'Please enter your full name (at least 2 characters).';
+      setAuthError(msg);
+      return { success: false, error: msg };
+    }
+    if (!trimmedEmail || !trimmedEmail.includes('@')) {
+      const msg = 'Please enter a valid email address.';
+      setAuthError(msg);
+      return { success: false, error: msg };
+    }
+    if (!password || password.length < 6) {
+      const msg = 'Password must be at least 6 characters long.';
+      setAuthError(msg);
+      return { success: false, error: msg };
+    }
+
+    try {
+      setAuthError(null);
+      const cred = await createUserWithEmailAndPassword(auth, trimmedEmail, password);
+      await updateProfile(cred.user, { displayName: trimmedName.slice(0, 120) });
+
+      let verificationSent = true;
+      try {
+        await sendEmailVerification(cred.user);
+      } catch {
+        verificationSent = false;
+      }
+
+      setIsEmailVerified(Boolean(cred.user.emailVerified));
+      setCurrentRole(expectedRole === 'technical' ? 'technician' : expectedRole === 'admin' ? 'admin' : 'customer');
+
+      const message = verificationSent
+        ? `Account created! A verification email was sent to ${trimmedEmail}. Please click the link in your inbox (check spam too), then click "I Verified — Refresh".`
+        : `Account created for ${trimmedEmail}. Please verify your email address in the banner to unlock quotes and bookings.`;
+      addToast(message, 'success');
+      return {
+        success: true,
+        needsVerification: !cred.user.emailVerified,
+        message
+      };
+    } catch (error) {
+      const friendlyMsg = mapAuthErrorMessage(error, false);
+      setAuthError(friendlyMsg);
+      addToast(friendlyMsg, 'error');
+      return { success: false, error: friendlyMsg };
+    }
+  };
+
+  const resendVerificationEmail = async (): Promise<{ success: boolean; error?: string; message?: string }> => {
+    if (!auth.currentUser) {
+      return { success: false, error: 'You must be signed in first.' };
+    }
+    try {
+      await sendEmailVerification(auth.currentUser);
+      const message = `Verification email resent to ${auth.currentUser.email}. Check your inbox and spam folder.`;
+      addToast(message, 'success');
+      return { success: true, message };
+    } catch (error) {
+      const friendlyMsg = mapAuthErrorMessage(error, false);
+      addToast(friendlyMsg, 'error');
+      return { success: false, error: friendlyMsg };
+    }
+  };
+
+  const refreshAuthUser = async (): Promise<{ verified: boolean; isAdmin: boolean }> => {
+    if (!auth.currentUser) {
+      return { verified: false, isAdmin: false };
+    }
+    await auth.currentUser.reload();
+    await auth.currentUser.getIdToken(true);
+    const refreshed = auth.currentUser;
+    const verified = Boolean(refreshed.emailVerified);
+    const adminStatus = await checkUserAdminStatus(refreshed);
+    setIsEmailVerified(verified);
+    setIsAdminAuthorized(adminStatus);
+    setFirebaseUser(refreshed);
+
+    if (verified) {
+      addToast('Email verified! Full portal access is now unlocked.', 'success');
+    } else {
+      addToast(
+        'Email is still pending verification. Please click the link in your verification email, then click Refresh again.',
+        'warning'
+      );
+    }
+    return { verified, isAdmin: adminStatus };
+  };
+
+  const sendPasswordReset = async (
+    email: string
+  ): Promise<{ success: boolean; error?: string; message?: string }> => {
+    const trimmedEmail = email.trim();
+    if (!trimmedEmail || !trimmedEmail.includes('@')) {
+      const msg = 'Enter your email address above first, then click Forgot Password.';
+      setAuthError(msg);
+      return { success: false, error: msg };
+    }
+    try {
+      setAuthError(null);
+      await sendPasswordResetEmail(auth, trimmedEmail);
+      const message = `Password reset email sent to ${trimmedEmail}. Check your inbox and spam folder.`;
+      addToast(message, 'success');
+      return { success: true, message };
+    } catch (error) {
+      const friendlyMsg = mapAuthErrorMessage(error, false);
       setAuthError(friendlyMsg);
       addToast(friendlyMsg, 'error');
       return { success: false, error: friendlyMsg };
@@ -817,6 +1065,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ): Promise<DialogueMessage | null> => {
     if (!firebaseUser) {
       addToast('Please sign in to send messages.', 'warning');
+      return null;
+    }
+    if (!firebaseUser.emailVerified) {
+      addToast('Please verify your email address first, then click "I Verified — Refresh".', 'warning');
       return null;
     }
 
@@ -1008,6 +1260,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ): Promise<QuoteRequest | null> => {
     if (!firebaseUser) {
       addToast('Please sign in first to submit and save your quote request.', 'warning');
+      return null;
+    }
+    if (!firebaseUser.emailVerified) {
+      addToast('Please verify your email address first, then click "I Verified — Refresh" before submitting.', 'warning');
       return null;
     }
 
@@ -1218,6 +1474,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return {
         success: false,
         error: 'Please sign in with your account to book and save your appointment.'
+      };
+    }
+    if (!firebaseUser.emailVerified) {
+      return {
+        success: false,
+        error: 'Please verify your email address first (check your inbox, then click "I Verified — Refresh").'
       };
     }
 
@@ -1484,6 +1746,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!firebaseUser) {
       return { success: false, error: 'You must be signed in to save your customer profile.' };
     }
+    if (!firebaseUser.emailVerified) {
+      return {
+        success: false,
+        error: 'Please verify your email address first (check your inbox, then click "I Verified — Refresh").'
+      };
+    }
 
     const name = (updatedProfile.name ?? currentUser.name ?? '').trim();
     const email = (updatedProfile.email ?? currentUser.email ?? '').trim();
@@ -1645,6 +1913,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       value={{
         firebaseUser,
         authReady,
+        isEmailVerified,
         isAdminAuthorized,
         customerProfileExists,
         profileLoading,
@@ -1653,6 +1922,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         firestoreError,
         clearFirestoreError,
         signInWithGoogle,
+        signInWithEmail,
+        createAccountWithEmail,
+        resendVerificationEmail,
+        refreshAuthUser,
+        sendPasswordReset,
         signOutUser,
         currentRole,
         setRole: handleSetRole,

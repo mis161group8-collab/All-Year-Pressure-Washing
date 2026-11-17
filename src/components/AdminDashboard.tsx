@@ -25,21 +25,19 @@ import {
   Search,
   History,
   X,
-  LogIn,
   LogOut,
   ShieldAlert
 } from 'lucide-react';
 import { Appointment, QuoteRequest, UserProfile } from '../types';
+import { AuthCard, EmailVerificationBanner } from './AuthCard';
 
 export const AdminDashboard: React.FC = () => {
   const {
     firebaseUser,
     authReady,
     isAdminAuthorized,
-    authError,
     firestoreError,
     clearFirestoreError,
-    signInWithGoogle,
     signOutUser,
     setActiveView,
     quotes,
@@ -299,47 +297,14 @@ export const AdminDashboard: React.FC = () => {
 
   if (!firebaseUser) {
     return (
-      <div className="py-16 max-w-lg mx-auto px-4 sm:px-6 text-[#222222]">
-        <div className="bg-white rounded-3xl p-8 border border-[#E8EEF1] shadow-sm text-center space-y-5">
-          <div className="w-14 h-14 rounded-2xl bg-[#E8EEF1] text-[#263F50] mx-auto flex items-center justify-center">
-            <Lock className="w-7 h-7" />
-          </div>
-          <div className="space-y-2">
-            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#E8EEF1] text-[#263F50]">
-              Protected Console · Admin Login Required
-            </span>
-            <h1 className="text-2xl font-bold text-[#222222]">Administrator Sign-In</h1>
-            <p className="text-xs sm:text-sm text-[#555555] leading-relaxed">
-              Sign in with your authorized administrator account to access customer records, dispatch schedules, blocked time slots, and financial ledgers.
-            </p>
-          </div>
-
-          {authError && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-700 text-left">
-              {authError}
-            </div>
-          )}
-
-          <div className="space-y-2.5">
-            <button
-              type="button"
-              onClick={() => void signInWithGoogle('admin')}
-              className="btn-rounded w-full py-3 px-6 bg-[#263F50] hover:bg-[#1A2E3D] text-white font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
-            >
-              <LogIn className="w-4 h-4" />
-              <span>Sign In with Administrator Account</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setActiveView('home')}
-              className="btn-rounded w-full py-2.5 px-6 bg-[#F8F9F7] hover:bg-[#E8EEF1] text-[#555555] font-semibold text-xs border border-[#E8EEF1] cursor-pointer"
-            >
-              Return to Public Website
-            </button>
-          </div>
-        </div>
-      </div>
+      <AuthCard
+        portalType="admin"
+        badgeText="Protected Console · Admin Login Required"
+        title="Administrator Sign-In"
+        description="Sign in with your authorized administrator account to access customer records, dispatch schedules, blocked time slots, and financial ledgers."
+        googleButtonLabel="Continue with Google"
+        onBackHome={() => setActiveView('home')}
+      />
     );
   }
 
@@ -356,8 +321,12 @@ export const AdminDashboard: React.FC = () => {
             </span>
             <h1 className="text-2xl font-bold text-[#222222]">Administrator Access Denied</h1>
             <p className="text-xs sm:text-sm text-[#555555] leading-relaxed">
-              The signed-in account (<strong>{firebaseUser.email}</strong>) does not have administrator privileges. Customer accounts cannot access dispatch, financial, or CRM records.
+              The signed-in account (<strong>{firebaseUser.email}</strong>) does not have verified administrator privileges. Customer accounts cannot access dispatch, financial, or CRM records.
             </p>
+          </div>
+
+          <div className="text-left">
+            <EmailVerificationBanner compact />
           </div>
 
           <div className="flex flex-col sm:flex-row gap-2.5 pt-1">

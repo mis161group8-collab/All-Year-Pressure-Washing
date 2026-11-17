@@ -17,7 +17,8 @@ export const DialogueDrawer: React.FC = () => {
     setActiveDialogueThreadId,
     currentRole,
     currentUser,
-    customers
+    customers,
+    switchToDedicatedView
   } = useApp();
 
   const [messageInput, setMessageInput] = useState('');
@@ -116,14 +117,26 @@ export const DialogueDrawer: React.FC = () => {
                 Customer conversations and dispatch transcripts are private to your authenticated account.
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => void signInWithGoogle('customer')}
-              className="btn-rounded px-5 py-2.5 bg-[#263F50] hover:bg-[#1A2E3D] text-white text-xs font-semibold flex items-center gap-1.5 cursor-pointer"
-            >
-              <LogIn className="w-3.5 h-3.5" />
-              <span>Sign In with Google</span>
-            </button>
+            <div className="flex flex-col gap-2 w-full max-w-xs">
+              <button
+                type="button"
+                onClick={() => void signInWithGoogle('customer')}
+                className="btn-rounded px-5 py-2.5 bg-[#263F50] hover:bg-[#1A2E3D] text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Sign In with Google</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setDialogueDrawerOpen(false);
+                  switchToDedicatedView('client');
+                }}
+                className="btn-rounded px-5 py-2.5 bg-white hover:bg-[#E8EEF1] text-[#263F50] border border-[#E8EEF1] text-xs font-semibold cursor-pointer"
+              >
+                Email Sign In / Create Account
+              </button>
+            </div>
           </div>
         ) : (
           <>

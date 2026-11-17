@@ -17,12 +17,12 @@ import {
   Copy,
   Check,
   DollarSign,
-  LogIn,
   LogOut,
   UserPlus,
   ShieldCheck
 } from 'lucide-react';
 import { Appointment } from '../types';
+import { AuthCard, EmailVerificationBanner } from './AuthCard';
 
 export const CustomerPortal: React.FC = () => {
   const {
@@ -30,10 +30,8 @@ export const CustomerPortal: React.FC = () => {
     authReady,
     customerProfileExists,
     profileLoading,
-    authError,
     firestoreError,
     clearFirestoreError,
-    signInWithGoogle,
     signOutUser,
     currentUser,
     updateCustomerProfile,
@@ -120,41 +118,14 @@ export const CustomerPortal: React.FC = () => {
 
   if (!firebaseUser) {
     return (
-      <div className="py-16 max-w-lg mx-auto px-4 sm:px-6 text-[#222222]">
-        <div className="bg-white rounded-3xl p-8 border border-[#E8EEF1] shadow-sm text-center space-y-5">
-          <div className="w-14 h-14 rounded-2xl bg-[#E8EEF1] text-[#263F50] mx-auto flex items-center justify-center">
-            <User className="w-7 h-7" />
-          </div>
-          <div className="space-y-2">
-            <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#E8EEF1] text-[#263F50]">
-              Customer Portal · Account Access
-            </span>
-            <h1 className="text-2xl font-bold text-[#222222]">Sign In to Your Customer Account</h1>
-            <p className="text-xs sm:text-sm text-[#555555] leading-relaxed">
-              Sign in to view your scheduled appointments, service history, quote requests, and manage your saved customer profile.
-            </p>
-          </div>
-
-          {authError && (
-            <div className="p-3 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-700 text-left">
-              {authError}
-            </div>
-          )}
-
-          <button
-            type="button"
-            onClick={() => void signInWithGoogle('customer')}
-            className="btn-rounded w-full py-3 px-6 bg-[#263F50] hover:bg-[#1A2E3D] text-white font-semibold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-xs transition-colors cursor-pointer"
-          >
-            <LogIn className="w-4 h-4" />
-            <span>Sign In with Google</span>
-          </button>
-
-          <p className="text-[11px] text-[#777777]">
-            Your appointments, quotes, and profile are private and visible only to your signed-in account.
-          </p>
-        </div>
-      </div>
+      <AuthCard
+        portalType="customer"
+        badgeText="Customer Portal · Account Access"
+        title="Customer Sign-In or Create Account"
+        description="Sign in or create a free customer account to view your scheduled appointments, request quotes, check service history, and manage your profile."
+        googleButtonLabel="Continue with Google"
+        helperFooter="Your appointments, quotes, and profile are private and visible only to your signed-in account."
+      />
     );
   }
 
@@ -249,6 +220,8 @@ export const CustomerPortal: React.FC = () => {
           </button>
         </div>
       )}
+
+      <EmailVerificationBanner />
 
       {/* Prompt to Create Customer Profile if not yet created */}
       {!profileLoading && !customerProfileExists && activeTab !== 'profile' && (

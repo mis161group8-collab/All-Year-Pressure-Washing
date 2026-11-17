@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { X, Calendar as CalendarIcon, Clock, CheckCircle2, AlertCircle, User, LogIn } from 'lucide-react';
 import { Appointment } from '../types';
+import { EmailVerificationBanner } from './AuthCard';
 
 const TIME_SLOTS = [
   '08:00 AM - 10:00 AM',
@@ -25,7 +26,8 @@ export const AppointmentBookingModal: React.FC = () => {
     isSlotAvailable,
     blockedSlots,
     appointments,
-    setActiveView
+    setActiveView,
+    switchToDedicatedView
   } = useApp();
 
   const [serviceId, setServiceId] = useState('');
@@ -431,20 +433,34 @@ export const AppointmentBookingModal: React.FC = () => {
                 </div>
               </div>
 
-              {!firebaseUser && (
-                <div className="p-3.5 rounded-2xl bg-[#E8EEF1] border border-[#D5E0E6] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              {!firebaseUser ? (
+                <div className="p-3.5 rounded-2xl bg-[#E8EEF1] border border-[#D5E0E6] space-y-2.5">
                   <div className="text-xs text-[#222222]">
-                    <span className="font-bold">Sign in to confirm &amp; save booking:</span> Connect your Google account so this appointment saves to your Customer Portal.
+                    <span className="font-bold">Sign in to confirm &amp; save booking:</span> Sign in with Google or Email &amp; Password so this appointment saves to your Customer Portal.
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => void signInWithGoogle('customer')}
-                    className="btn-rounded px-4 py-2 bg-[#263F50] hover:bg-[#1A2E3D] text-white text-xs font-semibold flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
-                  >
-                    <LogIn className="w-3.5 h-3.5" />
-                    <span>Sign In with Google</span>
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void signInWithGoogle('customer')}
+                      className="btn-rounded px-4 py-2 bg-[#263F50] hover:bg-[#1A2E3D] text-white text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <LogIn className="w-3.5 h-3.5" />
+                      <span>Sign In with Google</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBookingModalOpen(false);
+                        switchToDedicatedView('client');
+                      }}
+                      className="btn-rounded px-4 py-2 bg-white hover:bg-[#F8F9F7] text-[#263F50] border border-[#D5E0E6] text-xs font-semibold cursor-pointer"
+                    >
+                      Email Sign In / Create Account
+                    </button>
+                  </div>
                 </div>
+              ) : (
+                <EmailVerificationBanner compact />
               )}
 
               {/* Submit Button */}
