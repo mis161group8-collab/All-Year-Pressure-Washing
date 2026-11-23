@@ -1,13 +1,15 @@
 import React, { useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
-import { CONTACT_INFO, YELP_PROFILE_URL } from '../data/initialData';
-import { Phone, Mail, Clock, MapPin, ExternalLink, Calendar, FileText, CheckCircle2 } from 'lucide-react';
+import { YELP_PROFILE_URL } from '../data/initialData';
+import { Phone, Mail, Clock, MapPin, ExternalLink } from 'lucide-react';
 import L from 'leaflet';
 
 export const LocationAndHoursSection: React.FC = () => {
-  const { setQuoteModalOpen, setBookingModalOpen } = useApp();
+  const { setQuoteModalOpen, setBookingModalOpen, businessInfo } = useApp();
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
+  const overlayLayerRef = useRef<L.Polygon | null>(null);
+  const markerLayerRef = useRef<L.Marker | null>(null);
 
   // Polygon coordinates matching the user's confirmed Sacramento Yelp service coverage screenshot
   const sacramentoServicePolygon: [number, number][] = [
@@ -56,11 +58,12 @@ export const LocationAndHoursSection: React.FC = () => {
 
       serviceAreaOverlay.bindPopup(`
         <div style="font-family: system-ui, sans-serif; padding: 4px;">
-          <strong style="color: #263F50; font-size: 14px;">All Year Pressure Washing</strong><br/>
-          <span style="font-size: 12px; color: #555555;">Greater Sacramento Service Area</span><br/>
-          <span style="font-size: 11px; color: #777777;">Hours: Mon–Sun 8:00 AM – 8:00 PM</span>
+          <strong style="color: #263F50; font-size: 14px;">${businessInfo.companyName}</strong><br/>
+          <span style="font-size: 12px; color: #555555;">${businessInfo.address}</span><br/>
+          <span style="font-size: 11px; color: #777777;">Hours: ${businessInfo.hoursSummary}</span>
         </div>
       `);
+      overlayLayerRef.current = serviceAreaOverlay;
 
       // Sacramento central pin
       const customIcon = L.divIcon({
@@ -92,9 +95,10 @@ export const LocationAndHoursSection: React.FC = () => {
         <div style="font-family: system-ui, sans-serif; padding: 6px;">
           <strong style="color: #263F50; font-size: 14px;">Sacramento, California</strong><br/>
           <span style="font-size: 12px; color: #444444;">Dispatch Hub for Exterior On-Site Cleaning</span><br/>
-          <span style="font-size: 11px; color: #263F50; font-weight: 600;">(916) 397-1877</span>
+          <span style="font-size: 11px; color: #263F50; font-weight: 600;">${businessInfo.phone}</span>
         </div>
       `);
+      markerLayerRef.current = sacramentoMarker;
 
       mapInstanceRef.current = map;
 
@@ -108,9 +112,28 @@ export const LocationAndHoursSection: React.FC = () => {
       if (mapInstanceRef.current) {
         mapInstanceRef.current.remove();
         mapInstanceRef.current = null;
+        overlayLayerRef.current = null;
+        markerLayerRef.current = null;
       }
     };
   }, []);
+
+  useEffect(() => {
+    overlayLayerRef.current?.setPopupContent(`
+      <div style="font-family: system-ui, sans-serif; padding: 4px;">
+        <strong style="color: #263F50; font-size: 14px;">${businessInfo.companyName}</strong><br/>
+        <span style="font-size: 12px; color: #555555;">${businessInfo.address}</span><br/>
+        <span style="font-size: 11px; color: #777777;">Hours: ${businessInfo.hoursSummary}</span>
+      </div>
+    `);
+    markerLayerRef.current?.setPopupContent(`
+      <div style="font-family: system-ui, sans-serif; padding: 6px;">
+        <strong style="color: #263F50; font-size: 14px;">Sacramento, California</strong><br/>
+        <span style="font-size: 12px; color: #444444;">Dispatch Hub for Exterior On-Site Cleaning</span><br/>
+        <span style="font-size: 11px; color: #263F50; font-weight: 600;">${businessInfo.phone}</span>
+      </div>
+    `);
+  }, [businessInfo]);
 
   return (
     <section id="location-hours" className="py-16 lg:py-24 bg-[#F8F9F7] border-b border-[#E8EEF1] text-[#222222]">
@@ -207,11 +230,11 @@ export const LocationAndHoursSection: React.FC = () => {
 
               <div className="space-y-2.5 text-xs sm:text-sm">
                 <div className="flex items-center justify-between py-1 border-b border-gray-100">
-                  <span className="font-semibold text-[#222222]">Monday – Sunday</span>
-                  <span className="font-bold text-[#263F50]">8:00 AM – 8:00 PM</span>
+                  <span className="font-semibold text-[#222222]">{businessInfo.daysOpen}</span>
+                  <span className="font-bold text-[#263F50]">{businessInfo.dailyHours}</span>
                 </div>
                 <p className="text-xs text-[#666666] leading-relaxed pt-1">
-                  We schedule early morning, daytime, and late afternoon service visits 7 days a week to accommodate homeowner and commercial business schedules.
+                  {businessInfo.hoursNote}
                 </p>
               </div>
             </div>
@@ -230,10 +253,10 @@ export const LocationAndHoursSection: React.FC = () => {
                   <div>
                     <div className="text-[11px] text-[#777777]">Phone</div>
                     <a
-                      href="tel:9163971877"
+                      href={`tel:${businessInfo.phone.replace(/[^0-9]/g, '')}`}
                       className="font-bold text-[#263F50] hover:underline"
                     >
-                      (916) 397-1877
+                      {businessInfo.phone}
                     </a>
                   </div>
                 </div>
@@ -245,10 +268,10 @@ export const LocationAndHoursSection: React.FC = () => {
                   <div>
                     <div className="text-[11px] text-[#777777]">Email</div>
                     <a
-                      href="mailto:Allyearpressurewashing@gmail.com"
+                      href={`mailto:${businessInfo.email}`}
                       className="font-bold text-[#263F50] hover:underline break-all"
                     >
-                      Allyearpressurewashing@gmail.com
+                      {businessInfo.email}
                     </a>
                   </div>
                 </div>
@@ -260,7 +283,7 @@ export const LocationAndHoursSection: React.FC = () => {
                   <div>
                     <div className="text-[11px] text-[#777777]">Location &amp; Service Model</div>
                     <div className="font-semibold text-[#222222]">
-                      Greater Sacramento area, California
+                      {businessInfo.address}
                     </div>
                     <div className="text-[11px] text-[#666666]">
                       100% on-site service · Mobile service truck dispatch

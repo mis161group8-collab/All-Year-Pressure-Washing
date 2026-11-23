@@ -1,10 +1,9 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
-import { CONTACT_INFO } from '../data/initialData';
 import { Calendar, FileText, Phone, Star, MapPin } from 'lucide-react';
 
 export const Hero: React.FC = () => {
-  const { setQuoteModalOpen, setBookingModalOpen } = useApp();
+  const { setQuoteModalOpen, setBookingModalOpen, businessInfo } = useApp();
 
   const scrollToLocation = () => {
     const el = document.getElementById('location-hours');
@@ -36,7 +35,7 @@ export const Hero: React.FC = () => {
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             <span>Sacramento &amp; Surrounding Areas</span>
             <span className="text-white/40">·</span>
-            <span>8:00 AM – 8:00 PM Daily</span>
+            <span>{businessInfo.dailyHours} Daily</span>
           </div>
 
           {/* Main Headline */}
@@ -68,11 +67,11 @@ export const Hero: React.FC = () => {
             </button>
 
             <a
-              href={`tel:${CONTACT_INFO.phone.replace(/[^0-9]/g, '')}`}
+              href={`tel:${businessInfo.phone.replace(/[^0-9]/g, '')}`}
               className="btn-rounded px-4 py-3.5 text-sm font-semibold text-white bg-black/30 hover:bg-black/45 border border-white/30 backdrop-blur-md transition-colors flex items-center gap-2"
             >
               <Phone className="w-4 h-4 text-sky-300" />
-              <span>{CONTACT_INFO.phone}</span>
+              <span>{businessInfo.phone}</span>
             </a>
           </div>
 

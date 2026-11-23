@@ -16,16 +16,26 @@ import {
   Download,
   Copy,
   Check,
-  DollarSign
+  DollarSign,
+  LogOut,
+  AlertCircle
 } from 'lucide-react';
 import { Appointment } from '../types';
+import { TIME_SLOTS } from '../data/initialData';
+import { AuthCard, EmailVerificationBanner } from './AuthCard';
 
 export const CustomerPortal: React.FC = () => {
   const {
+    firebaseUser,
+    authReady,
+    isEmailVerified,
+    customerProfileExists,
+    profileLoading,
+    firestoreError,
+    clearFirestoreError,
+    signOutUser,
+    setActiveView,
     currentUser,
-    activeCustomerId,
-    setActiveCustomerId,
-    customers,
     updateCustomerProfile,
     appointments,
     quotes,
@@ -37,7 +47,8 @@ export const CustomerPortal: React.FC = () => {
     sendDialogueMessage,
     downloadDialogueTranscript,
     copyDialogueTranscript,
-    isSlotAvailable
+    isSlotAvailable,
+    todayLA
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<'profile' | 'upcoming' | 'history' | 'quotes' | 'dialogue'>('upcoming');
@@ -64,14 +75,38 @@ export const CustomerPortal: React.FC = () => {
   const [cancellingAppt, setCancellingAppt] = useState<Appointment | null>(null);
   const [cancelReason, setCancelReason] = useState('');
 
-  // Sync profile fields whenever selected demo customer profile changes
+  // Sync profile fields whenever Firestore user profile or auth state updates
   useEffect(() => {
-    setProfileName(currentUser.name || '');
-    setProfileEmail(currentUser.email || '');
+    setProfileName(currentUser.name || firebaseUser?.displayName || '');
+    setProfileEmail(currentUser.email || firebaseUser?.email || '');
     setProfilePhone(currentUser.phone || '');
     setProfileAddress(currentUser.address || '');
     setProfileNotes(currentUser.notes || '');
-  }, [currentUser]);
+    if (!profileLoading && firebaseUser && !customerProfileExists) {
+      setIsEditingProfile(true);
+    }
+  }, [currentUser, firebaseUser, profileLoading, customerProfileExists]);
+
+  if (!authReady) {
+    return (
+      <div className="py-16 max-w-md mx-auto px-4 text-center text-xs text-[#555555]">
+        Checking authentication status...
+      </div>
+    );
+  }
+
+  if (!firebaseUser) {
+    return (
+      <AuthCard
+        portalType="customer"
+        badgeText="Customer Portal · Sacramento Core"
+        title="Sign In or Create Account"
+        description="Access your quotes, scheduled pressure-washing appointments, service history, and dispatch messages."
+        googleButtonLabel="Continue with Google"
+        onBackHome={() => setActiveView('home')}
+      />
+    );
+  }
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -99,8 +134,8 @@ export const CustomerPortal: React.FC = () => {
 
   const myAppointments = appointments.filter(
     (a) =>
-      a.customerId === currentUser.id ||
-      (Boolean(currentUser.email) && a.customerEmail.toLowerCase() === currentUser.email.toLowerCase())
+      a.customerId === firebaseUser.uid ||
+      (Boolean(firebaseUser.email) && a.customerEmail.toLowerCase() === firebaseUser.email!.toLowerCase())
   );
 
   const upcomingAppointments = myAppointments.filter(
@@ -113,8 +148,8 @@ export const CustomerPortal: React.FC = () => {
 
   const myQuotes = quotes.filter(
     (q) =>
-      q.customerId === currentUser.id ||
-      (Boolean(currentUser.email) && q.email.toLowerCase() === currentUser.email.toLowerCase())
+      q.customerId === firebaseUser.uid ||
+      (Boolean(firebaseUser.email) && q.email.toLowerCase() === firebaseUser.email!.toLowerCase())
   );
 
   const handleStartReschedule = (appt: Appointment) => {
@@ -145,40 +180,72 @@ export const CustomerPortal: React.FC = () => {
 
   return (
     <div className="py-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-[#222222]">
-      {/* Top Header & Classroom Demo Customer Switcher */}
+      {/* Top Header & Signed-in Account Controls */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-8 border-b border-[#E8EEF1]">
         <div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#E8EEF1] text-[#263F50] border border-[#D5E0E6]">
-              Customer Portal · Classroom Demonstration (Fictional Data)
+              Customer Portal · Sacramento Core
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold text-[#222222] mt-1.5">
-            Welcome, {currentUser.name || 'Demo Customer'}
+            Welcome, {currentUser.name || firebaseUser.displayName || 'Valued Customer'}
           </h1>
           <p className="text-sm text-[#555555]">
             Manage your exterior cleaning appointments, quote estimates, and service history.
           </p>
         </div>
 
-        {/* Fictional Demo Customer Selector */}
         <div className="flex flex-wrap items-center gap-2.5">
-          <div className="flex items-center gap-3 bg-white p-2 rounded-2xl border border-[#E8EEF1] shadow-xs">
-            <label className="text-xs font-semibold text-[#555555] pl-2">Demo Customer:</label>
-            <select
-              value={activeCustomerId}
-              onChange={(e) => setActiveCustomerId(e.target.value)}
-              className="px-3 py-1.5 rounded-full border border-[#E8EEF1] text-xs font-bold bg-[#F8F9F7] text-[#263F50] focus:outline-none"
-            >
-              {customers.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name} ({c.email})
-                </option>
-              ))}
-            </select>
+          <div className="px-3.5 py-1.5 rounded-full bg-white border border-[#E8EEF1] text-xs font-semibold text-[#555555] shadow-xs">
+            Signed in as <strong className="text-[#263F50]">{firebaseUser.email}</strong>
           </div>
+          <button
+            type="button"
+            onClick={() => void signOutUser()}
+            className="btn-rounded px-3.5 py-1.5 bg-white hover:bg-rose-50 text-[#555555] hover:text-rose-700 border border-[#E8EEF1] text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Sign Out</span>
+          </button>
         </div>
       </div>
+
+      <EmailVerificationBanner />
+
+      {firestoreError && (
+        <div className="mt-4 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{firestoreError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={clearFirestoreError}
+            className="text-[11px] font-bold text-rose-700 hover:underline shrink-0 cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {!profileLoading && !customerProfileExists && isEmailVerified && (
+        <div className="mt-4 p-4 rounded-2xl bg-[#E8EEF1] border border-[#D5E0E6] flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-[#263F50]">
+          <div>
+            <strong>Complete Your Customer Profile:</strong> Save your phone number and Sacramento property address once so future quote requests and bookings auto-fill.
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setIsEditingProfile(true);
+              setActiveTab('profile');
+            }}
+            className="btn-rounded px-4 py-1.5 bg-[#263F50] hover:bg-[#1A2E3D] text-white font-semibold text-[11px] shrink-0 cursor-pointer"
+          >
+            Complete Profile
+          </button>
+        </div>
+      )}
 
       {/* Navigation tabs */}
       <div className="flex items-center gap-2 py-6 overflow-x-auto">
@@ -481,10 +548,15 @@ export const CustomerPortal: React.FC = () => {
                       <span className="text-slate-400">Address:</span>
                       <span className="font-semibold text-slate-700 truncate max-w-[200px]">{q.propertyAddress}</span>
                     </div>
-                    {q.estimatedPrice && (
+                    {typeof q.estimatedPrice === 'number' ? (
                       <div className="flex justify-between pt-1 border-t border-sky-100 font-bold text-sky-800">
                         <span>Estimate Amount:</span>
                         <span>${q.estimatedPrice}</span>
+                      </div>
+                    ) : (
+                      <div className="flex justify-between pt-1 border-t border-sky-100 text-slate-500 italic">
+                        <span>Estimate Amount:</span>
+                        <span>Pending Owner Review</span>
                       </div>
                     )}
                     {q.adminNotes && (
@@ -493,6 +565,22 @@ export const CustomerPortal: React.FC = () => {
                       </div>
                     )}
                   </div>
+
+                  {q.photos && q.photos.length > 0 && (
+                    <div className="space-y-1.5">
+                      <span className="text-[11px] font-semibold text-slate-500">Uploaded Photos ({q.photos.length}):</span>
+                      <div className="flex flex-wrap gap-2">
+                        {q.photos.map((photo, idx) => (
+                          <img
+                            key={idx}
+                            src={photo}
+                            alt={`Quote attachment ${idx + 1}`}
+                            className="w-14 h-14 rounded-xl object-cover border border-sky-200"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -514,7 +602,7 @@ export const CustomerPortal: React.FC = () => {
             <div className="flex items-center gap-2">
               <button
                 onClick={async () => {
-                  const ok = await copyDialogueTranscript(currentUser.id);
+                  const ok = await copyDialogueTranscript(firebaseUser.uid);
                   if (ok) {
                     setCopiedTranscript(true);
                     setTimeout(() => setCopiedTranscript(false), 2000);
@@ -527,7 +615,7 @@ export const CustomerPortal: React.FC = () => {
               </button>
 
               <button
-                onClick={() => downloadDialogueTranscript(currentUser.id)}
+                onClick={() => downloadDialogueTranscript(firebaseUser.uid)}
                 className="btn-rounded px-3.5 py-2 text-xs font-bold bg-cyan-500 hover:bg-cyan-600 text-white shadow-xs flex items-center gap-1.5 cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5" />
@@ -539,7 +627,7 @@ export const CustomerPortal: React.FC = () => {
           <div className="bg-white rounded-3xl p-6 border border-cyan-100 shadow-sm space-y-4">
             <div className="max-h-96 overflow-y-auto space-y-3 p-3 bg-slate-50 rounded-2xl">
               {dialogueMessages
-                .filter((m) => m.threadId === currentUser.id)
+                .filter((m) => m.threadId === firebaseUser.uid)
                 .map((msg) => (
                   <div
                     key={msg.id}
@@ -554,7 +642,7 @@ export const CustomerPortal: React.FC = () => {
                       <span className="font-normal text-slate-400">{msg.timestamp}</span>
                     </div>
                     <p className="leading-relaxed">{msg.message}</p>
-                    {msg.directPrice && (
+                    {typeof msg.directPrice === 'number' && (
                       <div className="pt-1 mt-1 border-t border-cyan-100 font-extrabold text-cyan-700 flex items-center gap-1">
                         <DollarSign className="w-3.5 h-3.5" />
                         <span>Locked Direct Price: ${msg.directPrice} ($0 Sacramento Core Visit Fee)</span>
@@ -563,9 +651,9 @@ export const CustomerPortal: React.FC = () => {
                   </div>
                 ))}
 
-              {dialogueMessages.filter((m) => m.threadId === currentUser.id).length === 0 && (
+              {dialogueMessages.filter((m) => m.threadId === firebaseUser.uid).length === 0 && (
                 <div className="text-center py-8 text-xs text-slate-400">
-                  No dialogue messages found for {currentUser.name}. Start a conversation with dispatch below.
+                  No dialogue messages found for {currentUser.name || firebaseUser.email}. Start a conversation with dispatch below.
                 </div>
               )}
             </div>
@@ -574,11 +662,12 @@ export const CustomerPortal: React.FC = () => {
               onSubmit={async (e) => {
                 e.preventDefault();
                 if (!dialogueInput.trim()) return;
+                const displayName = currentUser.name || firebaseUser.displayName || 'Customer';
                 await sendDialogueMessage(
-                  currentUser.id,
-                  currentUser.name || 'Demo Customer',
+                  firebaseUser.uid,
+                  displayName,
                   'client',
-                  `${currentUser.name || 'Demo Customer'} (Client)`,
+                  `${displayName} (Client)`,
                   dialogueInput.trim()
                 );
                 setDialogueInput('');
@@ -779,6 +868,7 @@ export const CustomerPortal: React.FC = () => {
                 <label className="block text-xs font-bold text-slate-700 mb-1">New Date</label>
                 <input
                   type="date"
+                  min={todayLA}
                   value={newDate}
                   onChange={(e) => setNewDate(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-2xl border border-sky-200 text-sm focus:ring-2 focus:ring-sky-400"
@@ -793,13 +883,7 @@ export const CustomerPortal: React.FC = () => {
                   onChange={(e) => setNewTime(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-2xl border border-sky-200 text-sm focus:ring-2 focus:ring-sky-400"
                 >
-                  {[
-                    '08:00 AM - 10:00 AM',
-                    '10:30 AM - 12:30 PM',
-                    '01:00 PM - 03:00 PM',
-                    '03:30 PM - 05:30 PM',
-                    '06:00 PM - 08:00 PM'
-                  ].map((slot) => {
+                  {TIME_SLOTS.map((slot) => {
                     const check = isSlotAvailable(newDate, slot, reschedulingAppt.id);
                     return (
                       <option key={slot} value={slot} disabled={!check.available}>

@@ -84,6 +84,45 @@
       },
       "required": ["uid", "email", "name", "role"]
     },
+    "StaffUser": {
+      "title": "StaffUser",
+      "description": "Authorized field technician directory entry keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "technicianId": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "phone": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "vehicle": {
+          "type": "string",
+          "maxLength": 160
+        },
+        "role": {
+          "type": "string",
+          "enum": ["technician"]
+        }
+      },
+      "required": ["uid", "email", "name", "role"]
+    },
     "BlockedSlot": {
       "title": "BlockedSlot",
       "description": "Unavailable date or time window blocked by administrator dispatch.",
@@ -121,6 +160,116 @@
         }
       },
       "required": ["id", "date", "timeSlot", "reason", "createdBy", "createdAt"]
+    },
+    "SlotAvailability": {
+      "title": "SlotAvailability",
+      "description": "Non-PII shared slot reservation counter used inside Firestore transactions to prevent double-booking.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "date": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 10,
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        },
+        "timeSlot": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 40
+        },
+        "bookedCount": {
+          "type": "integer"
+        },
+        "appointmentIds": {
+          "type": "array"
+        },
+        "bookedTechIds": {
+          "type": "array"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["id", "date", "timeSlot", "bookedCount", "appointmentIds", "bookedTechIds", "updatedAt"]
+    },
+    "SiteConfig": {
+      "title": "SiteConfig",
+      "description": "Publicly readable business hours, contact info, and non-PII dispatch capacity metadata editable by admins.",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "companyName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "phone": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 30
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200
+        },
+        "address": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300
+        },
+        "hoursSummary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "daysOpen": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "dailyHours": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "hoursNote": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "crewCapacity": {
+          "type": "integer"
+        },
+        "dispatchRoster": {
+          "type": "array"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "companyName",
+        "phone",
+        "email",
+        "address",
+        "hoursSummary",
+        "daysOpen",
+        "dailyHours",
+        "crewCapacity",
+        "updatedAt"
+      ]
     },
     "QuoteRequest": {
       "title": "QuoteRequest",
@@ -167,6 +316,13 @@
         "areaDescription": {
           "type": "string",
           "maxLength": 2000
+        },
+        "photos": {
+          "type": "array",
+          "description": "Compressed client-resized JPEG data URLs (max 5 photos)."
+        },
+        "photoCount": {
+          "type": "integer"
         },
         "status": {
           "type": "string",
@@ -263,6 +419,11 @@
         "technicianName": {
           "type": "string",
           "maxLength": 120
+        },
+        "technicianEmail": {
+          "type": "string",
+          "format": "email",
+          "maxLength": 200
         },
         "status": {
           "type": "string",
@@ -413,7 +574,7 @@
     },
     "DialogueMessage": {
       "title": "DialogueMessage",
-      "description": "Persistent customer-dispatch dialogue record scoped to a customer UID thread.",
+      "description": "Persistent customer-dispatch dialogue record scoped to a customer UID thread and assigned technicians.",
       "type": "object",
       "properties": {
         "id": {
@@ -447,12 +608,43 @@
           "type": "string",
           "maxLength": 40
         },
+        "assignedTechIds": {
+          "type": "array",
+          "description": "Assigned technician UIDs authorized to view this customer thread."
+        },
+        "assignedTechEmails": {
+          "type": "array",
+          "description": "Assigned technician emails authorized to view this customer thread."
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time"
         }
       },
       "required": ["id", "threadId", "customerName", "senderRole", "senderName", "message", "timestamp", "createdAt"]
+    },
+    "DialogueThreadAccess": {
+      "title": "DialogueThreadAccess",
+      "description": "Technician access index per customer threadId synchronized on appointment assignment.",
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "assignedTechIds": {
+          "type": "array"
+        },
+        "assignedTechEmails": {
+          "type": "array"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["threadId", "assignedTechIds", "assignedTechEmails", "updatedAt"]
     }
   },
   "firestore": {
@@ -464,9 +656,21 @@
       "schema": { "$ref": "#/entities/AdminUser" },
       "description": "Authorized administrator directory keyed by Firebase Auth UID."
     },
+    "/staff/{staffId}": {
+      "schema": { "$ref": "#/entities/StaffUser" },
+      "description": "Authorized field technician directory keyed by Firebase Auth UID."
+    },
     "/blockedSlots/{slotId}": {
       "schema": { "$ref": "#/entities/BlockedSlot" },
       "description": "Admin-blocked unavailable dates and arrival windows."
+    },
+    "/slotAvailability/{slotKey}": {
+      "schema": { "$ref": "#/entities/SlotAvailability" },
+      "description": "Non-PII shared time-slot reservation state for transactional double-booking prevention."
+    },
+    "/siteConfig/{configId}": {
+      "schema": { "$ref": "#/entities/SiteConfig" },
+      "description": "Publicly readable business hours, contact info, and non-PII crew roster managed by admins."
     },
     "/quotes/{quoteId}": {
       "schema": { "$ref": "#/entities/QuoteRequest" },
@@ -474,7 +678,7 @@
     },
     "/appointments/{appointmentId}": {
       "schema": { "$ref": "#/entities/Appointment" },
-      "description": "Appointments and job history isolated by customerId UID."
+      "description": "Appointments and job history isolated by customerId UID or assigned technician."
     },
     "/payments/{paymentId}": {
       "schema": { "$ref": "#/entities/PaymentRecord" },
@@ -486,7 +690,11 @@
     },
     "/dialogueMessages/{messageId}": {
       "schema": { "$ref": "#/entities/DialogueMessage" },
-      "description": "Customer-dispatch message log isolated by threadId == customer UID."
+      "description": "Customer-dispatch message log scoped to customer UID and assigned technicians."
+    },
+    "/dialogueThreads/{threadId}": {
+      "schema": { "$ref": "#/entities/DialogueThreadAccess" },
+      "description": "Technician access list per customer dialogue threadId."
     }
   }
 }

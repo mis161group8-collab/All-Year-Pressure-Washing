@@ -10,7 +10,8 @@ import {
   CustomerReview,
   CleaningSupply,
   DialogueMessage,
-  AdminNotification
+  AdminNotification,
+  BusinessInfo
 } from '../types';
 
 export const HERO_IMAGE = '/src/assets/images/hero_pressure_washing_1791508392680.jpg';
@@ -424,8 +425,7 @@ export const INITIAL_CUSTOMERS: UserProfile[] = [
     phone: '(916) 441-2099',
     address: '1824 23rd St, Midtown Sacramento, CA 95816',
     role: 'customer',
-    notes: 'Historic Craftsman home. Delicate rose bushes along south brick driveway. Dogs inside during wash.',
-    mfaEnabled: false
+    notes: 'Historic Craftsman home. Delicate rose bushes along south brick driveway. Dogs inside during wash.'
   },
   {
     id: 'cust-2',
@@ -434,8 +434,7 @@ export const INITIAL_CUSTOMERS: UserProfile[] = [
     phone: '(916) 728-1144',
     address: '8401 Laguna Springs Dr, Elk Grove, CA 95758',
     role: 'customer',
-    notes: '3-car exposed aggregate driveway with heavy oil drip spots from project car.',
-    mfaEnabled: false
+    notes: '3-car exposed aggregate driveway with heavy oil drip spots from project car.'
   },
   {
     id: 'cust-3',
@@ -444,8 +443,7 @@ export const INITIAL_CUSTOMERS: UserProfile[] = [
     phone: '(916) 983-5520',
     address: '110 Natoma St, Folsom, CA 95630',
     role: 'customer',
-    notes: 'Custom paver patio around swimming pool with heavy shaded moss build-up.',
-    mfaEnabled: false
+    notes: 'Custom paver patio around swimming pool with heavy shaded moss build-up.'
   }
 ];
 
@@ -477,8 +475,7 @@ export const INITIAL_ADMIN: UserProfile = {
   phone: '(916) 397-1877',
   address: 'Sacramento, CA',
   role: 'admin',
-  notes: 'Founder & Sacramento Dispatch Operations Lead',
-  mfaEnabled: true
+  notes: 'Founder & Sacramento Dispatch Operations Lead'
 };
 
 export const INITIAL_QUOTES: QuoteRequest[] = [
@@ -789,6 +786,14 @@ export const INITIAL_SERVICE_AREAS: ServiceArea[] = [
   }
 ];
 
+export const TIME_SLOTS = [
+  '08:00 AM - 10:00 AM',
+  '10:30 AM - 12:30 PM',
+  '01:00 PM - 03:00 PM',
+  '03:30 PM - 05:30 PM',
+  '06:00 PM - 08:00 PM'
+];
+
 export const BUSINESS_HOURS = [
   { days: 'Monday – Sunday (All 7 Days)', hours: '8:00 AM – 8:00 PM', status: 'Full Operations & Active Dispatch' },
   { days: 'Monday – Friday', hours: '8:00 AM – 8:00 PM', status: 'Residential & Commercial Dispatch' },
@@ -799,7 +804,7 @@ export const CONTACT_INFO = {
   company: 'All Year Pressure Washing',
   phone: '(916) 397-1877',
   emergencyPhone: '(916) 397-1877',
-  email: 'dispatch@allyearpressurewashing.com',
+  email: 'Allyearpressurewashing@gmail.com',
   address: 'Sacramento, CA',
   neighborhood: 'Sacramento & Surrounding Areas',
   headquarters: 'Sacramento, CA',
@@ -807,6 +812,20 @@ export const CONTACT_INFO = {
   guarantee: '100% Streak-Free & California Clean Water Act Compliant Guarantee',
   yelpUrl: YELP_PROFILE_URL,
   visitFeePolicy: 'Free On-Site Estimates in Greater Sacramento (<20 mi). $45 Extended trip fee is 100% credited upon booking.'
+};
+
+export const DEFAULT_BUSINESS_INFO: BusinessInfo = {
+  id: 'business',
+  companyName: 'All Year Pressure Washing',
+  phone: '(916) 397-1877',
+  email: 'Allyearpressurewashing@gmail.com',
+  address: 'Greater Sacramento area, California',
+  hoursSummary: 'Mon–Sun 8:00 AM – 8:00 PM',
+  daysOpen: 'Monday – Sunday',
+  dailyHours: '8:00 AM – 8:00 PM',
+  hoursNote: 'We schedule early morning, daytime, and late afternoon service visits 7 days a week to accommodate homeowner and commercial business schedules.',
+  crewCapacity: 1,
+  dispatchRoster: []
 };
 
 export const INITIAL_REVIEWS: CustomerReview[] = [

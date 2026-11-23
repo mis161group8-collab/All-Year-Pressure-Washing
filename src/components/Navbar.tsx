@@ -5,12 +5,15 @@ import {
   X,
   Calendar,
   MessageSquare,
-  Phone
+  Phone,
+  LogOut
 } from 'lucide-react';
-import { CONTACT_INFO } from '../data/initialData';
 
 export const Navbar: React.FC = () => {
   const {
+    firebaseUser,
+    signOutUser,
+    businessInfo,
     currentRole,
     activeView,
     setActiveView,
@@ -49,10 +52,10 @@ export const Navbar: React.FC = () => {
             <span className="w-2 h-2 rounded-full bg-[#263F50]"></span>
             <span className="text-[#222222] font-semibold">Greater Sacramento</span>
             <span className="hidden sm:inline text-gray-300">·</span>
-            <span className="hidden sm:inline">Mon–Sun 8:00 AM – 8:00 PM</span>
+            <span className="hidden sm:inline">{businessInfo.hoursSummary}</span>
             <span className="hidden md:inline text-gray-300">·</span>
-            <a href="tel:9163971877" className="hidden md:inline font-bold text-[#263F50] hover:underline">
-              {CONTACT_INFO.phone}
+            <a href={`tel:${businessInfo.phone.replace(/[^0-9]/g, '')}`} className="hidden md:inline font-bold text-[#263F50] hover:underline">
+              {businessInfo.phone}
             </a>
           </div>
 
@@ -111,6 +114,17 @@ export const Navbar: React.FC = () => {
                 <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#263F50]"></span>
               )}
             </button>
+
+            {firebaseUser && (
+              <button
+                onClick={() => void signOutUser()}
+                className="p-1 rounded-full text-[#555555] hover:text-rose-600 hover:bg-[#E8EEF1] transition-colors cursor-pointer"
+                title={`Sign out (${firebaseUser.email || 'Account'})`}
+                aria-label="Sign out"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -264,11 +278,11 @@ export const Navbar: React.FC = () => {
               Book Appointment
             </button>
             <a
-              href="tel:9163971877"
+              href={`tel:${businessInfo.phone.replace(/[^0-9]/g, '')}`}
               className="btn-rounded w-full py-2 text-xs font-semibold text-[#555555] bg-[#F8F9F7] border border-[#E8EEF1] text-center flex items-center justify-center gap-1.5"
             >
               <Phone className="w-3.5 h-3.5 text-[#263F50]" />
-              <span>Call (916) 397-1877</span>
+              <span>Call {businessInfo.phone}</span>
             </a>
           </div>
         </div>

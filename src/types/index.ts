@@ -8,7 +8,6 @@ export interface UserProfile {
   address: string;
   role: UserRole;
   notes?: string;
-  mfaEnabled?: boolean;
 }
 
 export interface ServiceItem {
@@ -58,6 +57,7 @@ export interface QuoteRequest {
   areaDescription: string;
   squareFootage?: number;
   photos: string[];
+  photoCount?: number;
   status: 'new' | 'reviewed' | 'quoted' | 'accepted' | 'declined';
   estimatedPrice?: number;
   directPriceBreakdown?: DirectPriceBreakdown;
@@ -79,6 +79,7 @@ export interface Appointment {
   scheduledTime: string; // e.g. "08:00 AM - 10:00 AM"
   technicianId: string;
   technicianName: string;
+  technicianEmail?: string;
   status: 'scheduled' | 'en_route' | 'in_progress' | 'completed' | 'cancelled';
   notes?: string;
   technicianNotes?: string;
@@ -91,11 +92,50 @@ export interface Appointment {
   squareFootage?: number;
 }
 
+export interface StaffAccount {
+  uid: string;
+  email: string;
+  name: string;
+  role: 'admin' | 'technician';
+  technicianId?: string;
+  phone?: string;
+  vehicle?: string;
+}
+
 export interface BlockedSlot {
   id: string;
   date: string; // YYYY-MM-DD
   timeSlot?: string; // specific slot or "All Day"
   reason: string;
+}
+
+export interface SlotAvailability {
+  id: string;
+  date: string;
+  timeSlot: string;
+  bookedCount: number;
+  appointmentIds: string[];
+  bookedTechIds: string[];
+}
+
+export interface DispatchRosterEntry {
+  id: string;
+  name: string;
+  vehicle?: string;
+}
+
+export interface BusinessInfo {
+  id: 'business';
+  companyName: string;
+  phone: string;
+  email: string;
+  address: string;
+  hoursSummary: string;
+  daysOpen: string;
+  dailyHours: string;
+  hoursNote: string;
+  crewCapacity: number;
+  dispatchRoster: DispatchRosterEntry[];
 }
 
 export interface PaymentRecord {
@@ -158,7 +198,7 @@ export interface CleaningSupply {
 
 export interface DialogueMessage {
   id: string;
-  threadId: string; // e.g. customer ID, quote ID, or general
+  threadId: string; // e.g. customer UID
   customerName: string;
   senderRole: 'client' | 'admin' | 'technician';
   senderName: string;
@@ -167,6 +207,8 @@ export interface DialogueMessage {
   quoteId?: string;
   appointmentId?: string;
   directPrice?: number;
+  assignedTechIds?: string[];
+  assignedTechEmails?: string[];
 }
 
 export interface AdminNotification {

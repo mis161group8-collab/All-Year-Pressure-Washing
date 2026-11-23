@@ -1,18 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { useApp } from '../context/AppContext';
-import { X, Calendar as CalendarIcon, Clock, CheckCircle2, AlertCircle, User } from 'lucide-react';
+import { useApp, addDaysToDateStr } from '../context/AppContext';
+import { X, Calendar as CalendarIcon, Clock, CheckCircle2, AlertCircle, User, LogIn } from 'lucide-react';
 import { Appointment } from '../types';
-
-const TIME_SLOTS = [
-  '08:00 AM - 10:00 AM',
-  '10:30 AM - 12:30 PM',
-  '01:00 PM - 03:00 PM',
-  '03:30 PM - 05:30 PM',
-  '06:00 PM - 08:00 PM'
-];
+import { TIME_SLOTS } from '../data/initialData';
+import { EmailVerificationBanner } from './AuthCard';
 
 export const AppointmentBookingModal: React.FC = () => {
   const {
+    firebaseUser,
+    isEmailVerified,
+    signInWithGoogle,
     bookingModalOpen,
     setBookingModalOpen,
     services,
@@ -23,15 +20,14 @@ export const AppointmentBookingModal: React.FC = () => {
     isSlotAvailable,
     blockedSlots,
     appointments,
-    setActiveView
+    setActiveView,
+    todayLA,
+    tomorrowLA,
+    businessInfo
   } = useApp();
 
   const [serviceId, setServiceId] = useState('');
-  const [selectedDate, setSelectedDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().split('T')[0];
-  });
+  const [selectedDate, setSelectedDate] = useState(tomorrowLA);
   const [selectedTime, setSelectedTime] = useState(TIME_SLOTS[0]);
   const [serviceAddress, setServiceAddress] = useState('');
   const [customerName, setCustomerName] = useState('');
@@ -81,17 +77,16 @@ export const AppointmentBookingModal: React.FC = () => {
     setBookingError(null);
   };
 
-  // Generate next 14 days for date selection
-  const todayStr = new Date().toISOString().split('T')[0];
+  // Generate next 14 days for date selection in Sacramento time
+  const todayStr = todayLA;
   const upcomingDates = Array.from({ length: 14 }).map((_, i) => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1 + i);
-    const dateString = d.toISOString().split('T')[0];
+    const dateString = addDaysToDateStr(todayLA, 1 + i);
+    const d = new Date(`${dateString}T12:00:00Z`);
     const allDayBlock = blockedSlots.find((b) => b.date === dateString && b.timeSlot === 'All Day');
     const allSlotsUnavailable = TIME_SLOTS.every((slot) => !isSlotAvailable(dateString, slot).available);
     const isBlocked = Boolean(allDayBlock || allSlotsUnavailable);
-    const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
-    const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const dayName = d.toLocaleDateString('en-US', { weekday: 'short', timeZone: 'America/Los_Angeles' });
+    const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Los_Angeles' });
     return { dateString, dayName, monthDay, isBlocked, reason: allDayBlock?.reason };
   });
 
@@ -102,6 +97,16 @@ export const AppointmentBookingModal: React.FC = () => {
   const handleBook = async (e: React.FormEvent) => {
     e.preventDefault();
     setBookingError(null);
+
+    if (!firebaseUser) {
+      setBookingError('Please sign in below to confirm your appointment booking.');
+      return;
+    }
+
+    if (!isEmailVerified) {
+      setBookingError('Please verify your email address before confirming an appointment.');
+      return;
+    }
 
     if (!customerPhone.trim() || customerPhone.replace(/\D/g, '').length < 7) {
       setBookingError('Please provide a valid phone number (at least 7 digits).');
@@ -156,7 +161,7 @@ export const AppointmentBookingModal: React.FC = () => {
             </div>
             <div>
               <h3 className="text-lg font-bold text-[#222222]">Book Online Appointment</h3>
-              <p className="text-xs text-[#555555]">Open 8:00 AM – 8:00 PM All 7 Days · Sacramento, California</p>
+              <p className="text-xs text-[#555555]">Open {businessInfo.dailyHours} All 7 Days · Sacramento, California</p>
             </div>
           </div>
           <button
@@ -424,6 +429,39 @@ export const AppointmentBookingModal: React.FC = () => {
                 </div>
               </div>
 
+              {!firebaseUser ? (
+                <div className="p-4 bg-[#E8EEF1] rounded-2xl border border-[#D5E0E6] space-y-2.5 text-xs">
+                  <div className="font-bold text-[#263F50]">Sign In to Confirm Appointment</div>
+                  <p className="text-[#555555]">
+                    Sign in to save your appointment in Cloud Firestore and manage rescheduling in your Customer Portal.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        void signInWithGoogle('customer');
+                      }}
+                      className="btn-rounded px-4 py-2 bg-[#263F50] hover:bg-[#1A2E3D] text-white font-semibold text-xs flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <LogIn className="w-3.5 h-3.5" />
+                      <span>Continue with Google</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleClose();
+                        setActiveView('customer_portal');
+                      }}
+                      className="btn-rounded px-4 py-2 bg-white hover:bg-[#F8F9F7] text-[#263F50] border border-[#D5E0E6] font-semibold text-xs cursor-pointer"
+                    >
+                      Email Sign In / Create Account
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <EmailVerificationBanner compact />
+              )}
+
               {/* Submit Button */}
               <div className="pt-2 flex items-center justify-end gap-3">
                 <button
@@ -435,7 +473,7 @@ export const AppointmentBookingModal: React.FC = () => {
                 </button>
                 <button
                   type="submit"
-                  disabled={isSubmitting}
+                  disabled={isSubmitting || !firebaseUser || !isEmailVerified}
                   className="btn-rounded px-6 py-2.5 text-xs font-semibold text-white bg-[#263F50] hover:bg-[#1A2E3D] shadow-xs cursor-pointer disabled:opacity-50"
                 >
                   {isSubmitting ? 'Saving Booking...' : 'Confirm Appointment'}

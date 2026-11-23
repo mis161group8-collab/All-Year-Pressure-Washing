@@ -1,10 +1,10 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
-import { Droplets, Phone, Mail, Clock, ExternalLink, Calendar, FileText, MapPin } from 'lucide-react';
-import { CONTACT_INFO, YELP_PROFILE_URL } from '../data/initialData';
+import { Phone, Clock, ExternalLink, MapPin } from 'lucide-react';
+import { YELP_PROFILE_URL } from '../data/initialData';
 
 export const Footer: React.FC = () => {
-  const { switchToDedicatedView, setQuoteModalOpen, setBookingModalOpen } = useApp();
+  const { switchToDedicatedView, setQuoteModalOpen, setBookingModalOpen, businessInfo } = useApp();
 
   const scrollTo = (id: string) => {
     const el = document.getElementById(id);
@@ -99,18 +99,18 @@ export const Footer: React.FC = () => {
               <span>Operating Hours</span>
             </h4>
             <div className="space-y-1.5 text-xs text-[#555555]">
-              <div className="font-semibold text-[#222222]">Monday – Sunday</div>
-              <div>8:00 AM – 8:00 PM</div>
+              <div className="font-semibold text-[#222222]">{businessInfo.daysOpen}</div>
+              <div>{businessInfo.dailyHours}</div>
               <div className="text-[11px] text-[#777777]">Open all 7 days of the week</div>
             </div>
 
             <div className="pt-2">
               <a
-                href={`tel:${CONTACT_INFO.phone.replace(/[^0-9]/g, '')}`}
+                href={`tel:${businessInfo.phone.replace(/[^0-9]/g, '')}`}
                 className="font-bold text-sm text-[#263F50] hover:underline flex items-center gap-1.5"
               >
                 <Phone className="w-3.5 h-3.5 text-[#263F50]" />
-                <span>{CONTACT_INFO.phone}</span>
+                <span>{businessInfo.phone}</span>
               </a>
             </div>
           </div>
@@ -120,14 +120,14 @@ export const Footer: React.FC = () => {
             <h4 className="font-bold text-[#222222] uppercase tracking-wider text-[11px]">Get in Touch</h4>
             <div className="space-y-1.5 text-xs text-[#555555]">
               <a
-                href="mailto:Allyearpressurewashing@gmail.com"
+                href={`mailto:${businessInfo.email}`}
                 className="hover:text-[#263F50] transition-colors block font-semibold text-[#222222] break-all"
               >
-                Allyearpressurewashing@gmail.com
+                {businessInfo.email}
               </a>
               <div className="flex items-center gap-1 text-[#555555]">
                 <MapPin className="w-3.5 h-3.5 text-[#263F50] shrink-0" />
-                <span>Greater Sacramento area, CA</span>
+                <span>{businessInfo.address}</span>
               </div>
             </div>
 

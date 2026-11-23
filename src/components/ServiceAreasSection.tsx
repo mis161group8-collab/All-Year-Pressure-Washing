@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { BUSINESS_HOURS, CONTACT_INFO } from '../data/initialData';
+import { BUSINESS_HOURS } from '../data/initialData';
 import { MapPin, Search, CheckCircle2, XCircle, Clock, Phone, Mail, ShieldCheck, ArrowRight } from 'lucide-react';
 
 export const ServiceAreasSection: React.FC = () => {
-  const { serviceAreas, setQuoteModalOpen } = useApp();
+  const { serviceAreas, setQuoteModalOpen, businessInfo } = useApp();
   const [zipInput, setZipInput] = useState('');
   const [zipResult, setZipResult] = useState<{ checked: boolean; covered: boolean; areaName?: string; visitFeePolicy?: string } | null>(null);
 
@@ -147,7 +147,7 @@ export const ServiceAreasSection: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="text-lg font-black text-white">Business Operating Hours</h3>
-                  <p className="text-xs text-sky-400 font-semibold">8:00am to 8:00pm all days of the week</p>
+                  <p className="text-xs text-sky-400 font-semibold">{businessInfo.dailyHours} all days of the week</p>
                 </div>
               </div>
 
@@ -160,7 +160,7 @@ export const ServiceAreasSection: React.FC = () => {
                       <div className="text-xs text-slate-400">{item.status}</div>
                     </div>
                     <div className="font-extrabold text-sky-300 bg-[#122133] px-3 py-1 rounded-full text-xs border border-[#1e3a5a]">
-                      {item.hours}
+                      {businessInfo.dailyHours}
                     </div>
                   </div>
                 ))}
@@ -168,7 +168,7 @@ export const ServiceAreasSection: React.FC = () => {
 
               <div className="p-3.5 bg-[#0e1926] rounded-2xl border border-[#1b324b] text-xs text-slate-300 flex items-center gap-2.5">
                 <ShieldCheck className="w-4 h-4 text-sky-400 shrink-0" />
-                <span>Operating Monday through Sunday: 8:00 AM – 8:00 PM. Emergency closed-loop spill containment on-call 24/7.</span>
+                <span>Operating {businessInfo.daysOpen}: {businessInfo.dailyHours}. Emergency closed-loop spill containment on-call 24/7.</span>
               </div>
             </div>
 
@@ -183,8 +183,8 @@ export const ServiceAreasSection: React.FC = () => {
                   </div>
                   <div>
                     <div className="text-xs text-slate-400">Direct Office & Scheduling</div>
-                    <a href={`tel:${CONTACT_INFO.phone.replace(/[^0-9]/g, '')}`} className="font-extrabold text-white hover:text-sky-400 transition-colors">
-                      {CONTACT_INFO.phone}
+                    <a href={`tel:${businessInfo.phone.replace(/[^0-9]/g, '')}`} className="font-extrabold text-white hover:text-sky-400 transition-colors">
+                      {businessInfo.phone}
                     </a>
                   </div>
                 </div>
@@ -195,8 +195,8 @@ export const ServiceAreasSection: React.FC = () => {
                   </div>
                   <div>
                     <div className="text-xs text-slate-400">Email Inquiries & Estimates</div>
-                    <a href={`mailto:${CONTACT_INFO.email}`} className="font-extrabold text-white hover:text-sky-400 transition-colors">
-                      {CONTACT_INFO.email}
+                    <a href={`mailto:${businessInfo.email}`} className="font-extrabold text-white hover:text-sky-400 transition-colors">
+                      {businessInfo.email}
                     </a>
                   </div>
                 </div>
@@ -207,7 +207,7 @@ export const ServiceAreasSection: React.FC = () => {
                   </div>
                   <div>
                     <div className="text-xs text-slate-400">Main Facility & Equipment Hub</div>
-                    <div className="font-extrabold text-white">{CONTACT_INFO.headquarters}</div>
+                    <div className="font-extrabold text-white">{businessInfo.address}</div>
                   </div>
                 </div>
               </div>

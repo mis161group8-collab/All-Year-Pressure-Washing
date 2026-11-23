@@ -1,25 +1,144 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { Wrench, MapPin, Phone, Clock, Navigation, AlertCircle, Check, FileCheck, MessageSquare, Leaf } from 'lucide-react';
+import {
+  Wrench,
+  MapPin,
+  Phone,
+  Clock,
+  Navigation,
+  AlertCircle,
+  Check,
+  FileCheck,
+  MessageSquare,
+  Leaf,
+  LogOut,
+  ShieldAlert
+} from 'lucide-react';
 import { Appointment } from '../types';
+import { AuthCard, EmailVerificationBanner } from './AuthCard';
 
 export const FieldTechnicianPortal: React.FC = () => {
   const {
+    firebaseUser,
+    authReady,
+    isEmailVerified,
+    isTechAuthorized,
+    isAdminAuthorized,
+    signOutUser,
+    setActiveView,
     technicians,
     selectedTechnicianId,
     setSelectedTechnicianId,
     appointments,
     updateTechnicianJobStatus,
     setDialogueDrawerOpen,
-    setActiveDialogueThreadId
+    setActiveDialogueThreadId,
+    businessInfo
   } = useApp();
 
-  const currentTech = technicians.find((t) => t.id === selectedTechnicianId) || technicians[0];
+  const currentTech =
+    (!isAdminAuthorized
+      ? technicians.find(
+          (t) =>
+            t.id === firebaseUser?.uid ||
+            (firebaseUser?.email && t.email.toLowerCase() === firebaseUser.email.toLowerCase())
+        )
+      : technicians.find((t) => t.id === selectedTechnicianId)) || technicians[0];
+
   const [completionModalAppt, setCompletionModalAppt] = useState<Appointment | null>(null);
   const [completionNotes, setCompletionNotes] = useState('');
 
-  // Assigned jobs for this technician
-  const assignedJobs = appointments.filter((a) => a.technicianId === currentTech.id);
+  if (!authReady) {
+    return (
+      <div className="py-16 max-w-md mx-auto px-4 text-center text-xs text-[#555555]">
+        Checking technician credentials...
+      </div>
+    );
+  }
+
+  if (!firebaseUser) {
+    return (
+      <AuthCard
+        portalType="technical"
+        badgeText="Technical View · Field Operations"
+        title="Field Technician Sign In"
+        description="Sign in with an authorized field technician or administrator account to access live dispatch routes and update job statuses."
+        googleButtonLabel="Sign In with Google"
+        onBackHome={() => setActiveView('home')}
+      />
+    );
+  }
+
+  if (!isEmailVerified) {
+    return (
+      <div className="py-12 max-w-xl mx-auto px-4 sm:px-6 text-[#222222] space-y-4">
+        <EmailVerificationBanner />
+        <div className="flex items-center justify-center gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => void signOutUser()}
+            className="btn-rounded px-4 py-2 bg-white border border-[#E8EEF1] text-xs font-semibold text-[#555555] hover:text-rose-700 cursor-pointer"
+          >
+            Sign Out
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView('home')}
+            className="btn-rounded px-4 py-2 bg-[#E8EEF1] text-xs font-semibold text-[#263F50] cursor-pointer"
+          >
+            Return to Home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isTechAuthorized) {
+    return (
+      <div className="py-12 max-w-lg mx-auto px-4 sm:px-6 text-[#222222]">
+        <div className="bg-white rounded-3xl p-8 border border-[#E8EEF1] shadow-sm text-center space-y-4">
+          <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 mx-auto flex items-center justify-center">
+            <ShieldAlert className="w-6 h-6" />
+          </div>
+          <h2 className="text-xl font-bold text-[#222222]">Technician Authorization Required</h2>
+          <p className="text-xs text-[#555555] leading-relaxed">
+            Signed in as <strong>{firebaseUser.email}</strong>, which is not currently listed as an authorized field technician in Firestore.
+          </p>
+          <div className="p-3 rounded-2xl bg-[#F8F9F7] border border-[#E8EEF1] text-[11px] text-[#555555]">
+            Your Firebase User UID: <code className="font-mono font-bold text-[#263F50]">{firebaseUser.uid}</code>
+          </div>
+          <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+            <button
+              type="button"
+              onClick={() => setActiveView('customer_portal')}
+              className="btn-rounded px-4 py-2 bg-[#263F50] text-white text-xs font-semibold cursor-pointer"
+            >
+              Go to Customer Portal
+            </button>
+            <button
+              type="button"
+              onClick={() => void signOutUser()}
+              className="btn-rounded px-4 py-2 bg-white border border-[#E8EEF1] text-[#555555] hover:text-rose-700 text-xs font-semibold cursor-pointer"
+            >
+              Sign Out
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Assigned jobs for this technician (or all UID/email-assigned jobs for a signed-in field tech)
+  const assignedJobs = isAdminAuthorized
+    ? currentTech
+      ? appointments.filter((a) => a.technicianId === currentTech.id)
+      : []
+    : appointments.filter(
+        (a) =>
+          a.technicianId === firebaseUser.uid ||
+          (currentTech && a.technicianId === currentTech.id) ||
+          (a.technicianEmail && firebaseUser.email && a.technicianEmail.toLowerCase() === firebaseUser.email.toLowerCase())
+      );
   const activeJobs = assignedJobs.filter((a) => a.status !== 'completed' && a.status !== 'cancelled');
   const completedToday = assignedJobs.filter((a) => a.status === 'completed');
 
@@ -47,33 +166,53 @@ export const FieldTechnicianPortal: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#E8EEF1] text-[#263F50] border border-[#d2dce2]">
-              Technical View · Classroom Demonstration (Fictional Data)
+              Technical View · Field Operations
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-[#222222] mt-1">
             Field Technician Console
           </h1>
           <p className="text-sm text-[#555555]">
-            Assigned mobile service routes, 8:00am – 8:00pm daily dispatch, address navigation, and live status reporting.
+            Assigned mobile service routes, {businessInfo.dailyHours} daily dispatch, address navigation, and live status reporting.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Technician Selector */}
-          <div className="flex items-center gap-3 bg-white p-2 rounded-2xl border border-[#E8EEF1] shadow-xs">
-            <label className="text-xs font-semibold text-[#555555] pl-2">Active Tech:</label>
-            <select
-              value={selectedTechnicianId}
-              onChange={(e) => setSelectedTechnicianId(e.target.value)}
-              className="px-3 py-1.5 rounded-full border border-[#E8EEF1] text-xs font-bold bg-[#F8F9F7] text-[#263F50] focus:outline-none"
-            >
-              {technicians.map((t) => (
-                <option key={t.id} value={t.id}>
-                  {t.name} ({t.vehicle})
-                </option>
-              ))}
-            </select>
-          </div>
+          {isAdminAuthorized ? (
+            <div className="flex items-center gap-3 bg-white p-2 rounded-2xl border border-[#E8EEF1] shadow-xs">
+              <label className="text-xs font-semibold text-[#555555] pl-2">Active Tech:</label>
+              {technicians.length > 0 ? (
+                <select
+                  value={selectedTechnicianId}
+                  onChange={(e) => setSelectedTechnicianId(e.target.value)}
+                  className="px-3 py-1.5 rounded-full border border-[#E8EEF1] text-xs font-bold bg-[#F8F9F7] text-[#263F50] focus:outline-none"
+                >
+                  {technicians.map((t) => (
+                    <option key={t.id} value={t.id}>
+                      {t.name} ({t.vehicle})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="px-3 py-1 text-xs text-amber-700 font-semibold">
+                  No staff technicians registered yet
+                </span>
+              )}
+            </div>
+          ) : (
+            <div className="px-3.5 py-1.5 rounded-full bg-white border border-[#E8EEF1] text-xs font-semibold text-[#555555] shadow-xs">
+              Tech: <strong className="text-[#263F50]">{firebaseUser.email}</strong>
+            </div>
+          )}
+
+          <button
+            type="button"
+            onClick={() => void signOutUser()}
+            className="btn-rounded px-3.5 py-1.5 bg-white hover:bg-rose-50 text-[#555555] hover:text-rose-700 border border-[#E8EEF1] text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
+          >
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Sign Out</span>
+          </button>
         </div>
       </div>
 
@@ -81,8 +220,8 @@ export const FieldTechnicianPortal: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 py-6">
         <div className="bg-white rounded-2xl p-5 border border-[#E8EEF1] shadow-xs">
           <div className="text-xs text-[#555555] font-semibold uppercase tracking-wider">Assigned Truck Unit</div>
-          <div className="text-base font-black text-[#222222] mt-1">{currentTech.vehicle}</div>
-          <div className="text-xs text-[#263F50] font-semibold mt-1">Direct: {currentTech.phone}</div>
+          <div className="text-base font-black text-[#222222] mt-1">{currentTech?.vehicle || 'Sacramento Mobile Service Rig'}</div>
+          <div className="text-xs text-[#263F50] font-semibold mt-1">Direct: {currentTech?.phone || businessInfo.phone}</div>
         </div>
 
         <div className="bg-white rounded-2xl p-5 border border-[#E8EEF1] shadow-xs">

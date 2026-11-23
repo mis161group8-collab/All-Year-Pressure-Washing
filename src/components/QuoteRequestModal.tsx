@@ -1,11 +1,65 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
-import { X, ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, Upload } from 'lucide-react';
+import { X, ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, Upload, LogIn } from 'lucide-react';
 import { MAIN_SERVICE_CATEGORIES, REMOVAL_NEEDS_OPTIONS, TIMING_OPTIONS } from '../data/initialData';
 import { QuoteRequest } from '../types';
+import { EmailVerificationBanner } from './AuthCard';
+
+async function compressImageFile(file: File): Promise<string> {
+  if (!file.type.startsWith('image/')) {
+    throw new Error(`"${file.name}" is not a supported image file.`);
+  }
+
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+      } else {
+        reject(new Error(`Unable to read "${file.name}".`));
+      }
+    };
+    reader.onerror = () => reject(new Error(`Unable to read "${file.name}".`));
+    reader.readAsDataURL(file);
+  });
+
+  const img = await new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error(`Unable to decode "${file.name}".`));
+    image.src = dataUrl;
+  });
+
+  const maxDim = 800;
+  const scale = Math.min(1, maxDim / Math.max(img.width || 1, img.height || 1));
+  const width = Math.max(1, Math.round((img.width || 800) * scale));
+  const height = Math.max(1, Math.round((img.height || 600) * scale));
+
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Image compression is not supported in this browser.');
+  }
+  ctx.drawImage(img, 0, 0, width, height);
+
+  let compressed = canvas.toDataURL('image/jpeg', 0.62);
+  if (compressed.length > 135000) {
+    compressed = canvas.toDataURL('image/jpeg', 0.45);
+  }
+  if (compressed.length > 155000) {
+    throw new Error(`"${file.name}" exceeds the maximum upload size even after compression. Please use a smaller photo.`);
+  }
+
+  return compressed;
+}
 
 export const QuoteRequestModal: React.FC = () => {
   const {
+    firebaseUser,
+    isEmailVerified,
+    signInWithGoogle,
     quoteModalOpen,
     setQuoteModalOpen,
     currentUser,
@@ -14,7 +68,8 @@ export const QuoteRequestModal: React.FC = () => {
     setSelectedQuoteCategory,
     selectedQuoteSubcategories,
     setSelectedQuoteSubcategories,
-    switchToDedicatedView
+    switchToDedicatedView,
+    todayLA
   } = useApp();
 
   // Step 1 to 6, then 7 is 'review'
@@ -33,7 +88,10 @@ export const QuoteRequestModal: React.FC = () => {
   // Timing preference
   const [timingPreference, setTimingPreference] = useState<'asap' | 'flexible' | 'specific_date'>('asap');
   const [calendarDate, setCalendarDate] = useState<string>('');
-  const [calendarMonth, setCalendarMonth] = useState<Date>(new Date());
+  const [calendarMonth, setCalendarMonth] = useState<Date>(() => {
+    const [y, m] = todayLA.split('-').map(Number);
+    return new Date(y, (m || 1) - 1, 1);
+  });
 
   // Location
   const [streetAddress, setStreetAddress] = useState('');
@@ -120,19 +178,42 @@ export const QuoteRequestModal: React.FC = () => {
     );
   };
 
-  // Photo upload handlers
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Photo upload handlers (compressed to fit Firestore document safety limits)
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setUploadedPhotos((prev) => [...prev, event.target!.result as string].slice(0, 5));
-        }
-      };
-      reader.readAsDataURL(file);
-    });
+
+    setErrorMessage('');
+    const remainingSlots = Math.max(0, 5 - uploadedPhotos.length);
+    if (remainingSlots === 0) {
+      setErrorMessage('Maximum 5 photos attached. Remove a photo to upload a new one.');
+      e.target.value = '';
+      return;
+    }
+
+    const selectedFiles = Array.from(files).slice(0, remainingSlots);
+    const compressedList: string[] = [];
+    const errors: string[] = [];
+
+    for (const file of selectedFiles) {
+      try {
+        const compressed = await compressImageFile(file);
+        compressedList.push(compressed);
+      } catch (err) {
+        errors.push(err instanceof Error ? err.message : `Failed to process "${file.name}".`);
+      }
+    }
+
+    if (compressedList.length > 0) {
+      setUploadedPhotos((prev) => [...prev, ...compressedList].slice(0, 5));
+    }
+    if (files.length > remainingSlots) {
+      errors.push(`Only ${remainingSlots} additional photo(s) can be added (max 5 total).`);
+    }
+    if (errors.length > 0) {
+      setErrorMessage(errors.join(' '));
+    }
+    e.target.value = '';
   };
 
   const removePhoto = (index: number) => {
@@ -209,6 +290,15 @@ export const QuoteRequestModal: React.FC = () => {
   // Submit Quote Request
   const handleSubmit = async () => {
     setErrorMessage('');
+    if (!firebaseUser) {
+      setErrorMessage('Please sign in below before submitting your quote request.');
+      return;
+    }
+    if (!isEmailVerified) {
+      setErrorMessage('Please verify your email address before submitting your quote request.');
+      return;
+    }
+
     setIsSubmitting(true);
 
     const fullPropertyAddress = `${streetAddress}, ${city}, ${state} ${zipCode}`.trim();
@@ -216,7 +306,7 @@ export const QuoteRequestModal: React.FC = () => {
 
     try {
       const created = await submitQuoteRequest({
-        customerId: currentUser.id,
+        customerId: firebaseUser.uid,
         customerName: fullName,
         email,
         phone,
@@ -272,8 +362,8 @@ export const QuoteRequestModal: React.FC = () => {
       'July', 'August', 'September', 'October', 'November', 'December'
     ];
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const [todayY, todayM, todayD] = todayLA.split('-').map(Number);
+    const today = new Date(todayY, (todayM || 1) - 1, todayD || 1);
 
     const days = [];
     for (let i = 0; i < startDay; i++) {
@@ -890,6 +980,39 @@ export const QuoteRequestModal: React.FC = () => {
                       "We offer free quotes for all pressure-washing projects, including on-site assessments. Services start at $250. Pricing varies depending on the type of service and the specific needs of your property. All quotes are all-inclusive, covering fuel, travel expenses, and applicable taxes. Estimates based on photographs are preliminary and subject to owner review."
                     </p>
                   </div>
+
+                  {!firebaseUser ? (
+                    <div className="p-4 bg-[#E8EEF1] rounded-2xl border border-[#D5E0E6] space-y-2.5 text-xs">
+                      <div className="font-bold text-[#263F50]">Sign In to Save Your Quote</div>
+                      <p className="text-[#555555]">
+                        Sign in to link this quote request to your verified customer portal so you can track estimates and schedule updates.
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            void signInWithGoogle('customer');
+                          }}
+                          className="btn-rounded px-4 py-2 bg-[#263F50] hover:bg-[#1A2E3D] text-white font-semibold text-xs flex items-center gap-1.5 cursor-pointer"
+                        >
+                          <LogIn className="w-3.5 h-3.5" />
+                          <span>Continue with Google</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            handleClose();
+                            switchToDedicatedView('client');
+                          }}
+                          className="btn-rounded px-4 py-2 bg-white hover:bg-[#F8F9F7] text-[#263F50] border border-[#D5E0E6] font-semibold text-xs cursor-pointer"
+                        >
+                          Email Sign In / Create Account
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <EmailVerificationBanner compact />
+                  )}
                 </div>
               )}
             </>
@@ -924,7 +1047,7 @@ export const QuoteRequestModal: React.FC = () => {
             ) : (
               <button
                 type="button"
-                disabled={isSubmitting}
+                disabled={isSubmitting || !firebaseUser || !isEmailVerified}
                 onClick={handleSubmit}
                 className="btn-rounded px-6 py-2.5 text-xs font-semibold text-white bg-[#263F50] hover:bg-[#1A2E3D] transition-colors flex items-center gap-1.5 cursor-pointer shadow-xs disabled:opacity-50"
               >

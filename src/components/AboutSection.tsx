@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
-import { BEFORE_AFTER_PROJECTS, CONTACT_INFO } from '../data/initialData';
+import { BEFORE_AFTER_PROJECTS } from '../data/initialData';
 import { ChevronLeft, ChevronRight, FileText, Phone, Leaf, ShieldCheck, HeartHandshake } from 'lucide-react';
 
 export const AboutSection: React.FC = () => {
-  const { setQuoteModalOpen } = useApp();
+  const { setQuoteModalOpen, businessInfo } = useApp();
 
   // Active project index for pagination (changes page/project)
   const [projectIndex, setProjectIndex] = useState<number>(0);
@@ -230,11 +230,11 @@ export const AboutSection: React.FC = () => {
               </button>
 
               <a
-                href={`tel:${CONTACT_INFO.phone.replace(/[^0-9]/g, '')}`}
+                href={`tel:${businessInfo.phone.replace(/[^0-9]/g, '')}`}
                 className="btn-rounded px-5 py-3 text-xs font-semibold text-[#263F50] bg-[#E8EEF1] hover:bg-[#DCE5EA] border border-[#D5E0E6] transition-colors flex items-center gap-2"
               >
                 <Phone className="w-4 h-4" />
-                <span>{CONTACT_INFO.phone}</span>
+                <span>{businessInfo.phone}</span>
               </a>
             </div>
 

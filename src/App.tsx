@@ -12,7 +12,6 @@ import { AdminDashboard } from './components/AdminDashboard';
 import { QuoteRequestModal } from './components/QuoteRequestModal';
 import { AppointmentBookingModal } from './components/AppointmentBookingModal';
 import { DialogueDrawer } from './components/DialogueDrawer';
-import { MfaModal } from './components/MfaModal';
 import { ToastContainer } from './components/ToastContainer';
 import { Footer } from './components/Footer';
 
@@ -80,7 +79,6 @@ const MainContent: React.FC = () => {
       <QuoteRequestModal />
       <AppointmentBookingModal />
       <DialogueDrawer />
-      <MfaModal />
       <ToastContainer />
     </div>
   );

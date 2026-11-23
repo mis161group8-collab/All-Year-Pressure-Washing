@@ -24,12 +24,34 @@ import {
   Mail,
   Search,
   History,
-  X
+  X,
+  LogOut,
+  ShieldAlert,
+  AlertCircle,
+  UserPlus,
+  Building2
 } from 'lucide-react';
 import { Appointment, QuoteRequest, UserProfile } from '../types';
+import { TIME_SLOTS } from '../data/initialData';
+import { AuthCard, EmailVerificationBanner } from './AuthCard';
 
 export const AdminDashboard: React.FC = () => {
   const {
+    firebaseUser,
+    authReady,
+    isEmailVerified,
+    isAdminAuthorized,
+    firestoreError,
+    clearFirestoreError,
+    signOutUser,
+    setActiveView,
+    staffAccounts,
+    grantStaffAccess,
+    revokeStaffAccess,
+    businessInfo,
+    updateBusinessInfo,
+    todayLA,
+    tomorrowLA,
     quotes,
     updateQuoteStatus,
     convertQuoteToAppointment,
@@ -45,9 +67,8 @@ export const AdminDashboard: React.FC = () => {
     updateCustomerRecordByAdmin,
     payments,
     recordPayment,
+    updatePaymentStatus,
     technicians,
-    currentUser,
-    setMfaModalOpen,
     services,
     dialogueMessages,
     sendDialogueMessage,
@@ -60,6 +81,27 @@ export const AdminDashboard: React.FC = () => {
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<'quotes' | 'schedule' | 'customers' | 'payments' | 'security' | 'dialogue' | 'notifications'>('notifications');
+  const [staffUidInput, setStaffUidInput] = useState('');
+  const [staffNameInput, setStaffNameInput] = useState('');
+  const [staffEmailInput, setStaffEmailInput] = useState('');
+  const [staffPhoneInput, setStaffPhoneInput] = useState('');
+  const [staffVehicleInput, setStaffVehicleInput] = useState('Sacramento Mobile Service Rig');
+  const [staffError, setStaffError] = useState<string | null>(null);
+  const [savingStaff, setSavingStaff] = useState(false);
+
+  // Editable Business Info state
+  const [bizCompanyName, setBizCompanyName] = useState(businessInfo.companyName);
+  const [bizPhone, setBizPhone] = useState(businessInfo.phone);
+  const [bizEmail, setBizEmail] = useState(businessInfo.email);
+  const [bizAddress, setBizAddress] = useState(businessInfo.address);
+  const [bizDaysOpen, setBizDaysOpen] = useState(businessInfo.daysOpen);
+  const [bizDailyHours, setBizDailyHours] = useState(businessInfo.dailyHours);
+  const [bizHoursSummary, setBizHoursSummary] = useState(businessInfo.hoursSummary);
+  const [bizHoursNote, setBizHoursNote] = useState(businessInfo.hoursNote);
+  const [bizCrewCapacity, setBizCrewCapacity] = useState(businessInfo.crewCapacity);
+  const [bizError, setBizError] = useState<string | null>(null);
+  const [savingBiz, setSavingBiz] = useState(false);
+
   const [selectedDialogueThread, setSelectedDialogueThread] = useState<string>('');
   const [adminReplyText, setAdminReplyText] = useState('');
   const [adminPriceQuote, setAdminPriceQuote] = useState<string>('');
@@ -71,13 +113,9 @@ export const AdminDashboard: React.FC = () => {
   const [quotePriceEstimate, setQuotePriceEstimate] = useState<number>(250);
   const [quoteAdminNote, setQuoteAdminNote] = useState('');
   const [convertingQuote, setConvertingQuote] = useState<QuoteRequest | null>(null);
-  const [convertDate, setConvertDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().split('T')[0];
-  });
-  const [convertTime, setConvertTime] = useState('08:00 AM - 10:00 AM');
-  const [convertTech, setConvertTech] = useState(technicians[0]?.id || 'tech-1');
+  const [convertDate, setConvertDate] = useState(tomorrowLA);
+  const [convertTime, setConvertTime] = useState(TIME_SLOTS[0]);
+  const [convertTech, setConvertTech] = useState(technicians[0]?.id || '');
 
   // Schedule modal states
   const [manualModalOpen, setManualModalOpen] = useState(false);
@@ -87,21 +125,18 @@ export const AdminDashboard: React.FC = () => {
   const [manualEmail, setManualEmail] = useState('');
   const [manualAddress, setManualAddress] = useState('');
   const [manualServiceId, setManualServiceId] = useState(services[0]?.id || 'house-wash');
-  const [manualDate, setManualDate] = useState(() => {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().split('T')[0];
-  });
-  const [manualTime, setManualTime] = useState('08:00 AM - 10:00 AM');
-  const [manualTechId, setManualTechId] = useState(technicians[0]?.id || 'tech-1');
+  const [manualDate, setManualDate] = useState(tomorrowLA);
+  const [manualTime, setManualTime] = useState(TIME_SLOTS[0]);
+  const [manualTechId, setManualTechId] = useState(technicians[0]?.id || '');
   const [manualNotes, setManualNotes] = useState('');
   const [manualPrice, setManualPrice] = useState(250);
   const [manualError, setManualError] = useState<string | null>(null);
 
   // Block slot form state
-  const [blockDate, setBlockDate] = useState(() => new Date().toISOString().split('T')[0]);
+  const [blockDate, setBlockDate] = useState(todayLA);
   const [blockTimeSlot, setBlockTimeSlot] = useState('All Day');
   const [blockReason, setBlockReason] = useState('');
+  const [blockError, setBlockError] = useState<string | null>(null);
 
   // Modify appointment state
   const [modifyingAppt, setModifyingAppt] = useState<Appointment | null>(null);
@@ -119,6 +154,7 @@ export const AdminDashboard: React.FC = () => {
   const [custEditPhone, setCustEditPhone] = useState('');
   const [custEditAddress, setCustEditAddress] = useState('');
   const [custEditNotes, setCustEditNotes] = useState('');
+  const [custEditError, setCustEditError] = useState<string | null>(null);
 
   // Payment record modal
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -126,6 +162,34 @@ export const AdminDashboard: React.FC = () => {
   const [payAmount, setPayAmount] = useState<number>(250);
   const [payMethod, setPayMethod] = useState<'Credit Card' | 'Check' | 'Cash' | 'Bank Transfer' | 'Online'>('Credit Card');
   const [payNotes, setPayNotes] = useState('');
+
+  // Keep technician selectors aligned with loaded Firestore /staff
+  useEffect(() => {
+    if (technicians.length === 0) {
+      setConvertTech('');
+      setManualTechId('');
+      return;
+    }
+    if (!convertTech || !technicians.some((t) => t.id === convertTech)) {
+      setConvertTech(technicians[0].id);
+    }
+    if (!manualTechId || !technicians.some((t) => t.id === manualTechId)) {
+      setManualTechId(technicians[0].id);
+    }
+  }, [technicians, convertTech, manualTechId]);
+
+  // Sync editable business info form when Firestore config updates
+  useEffect(() => {
+    setBizCompanyName(businessInfo.companyName);
+    setBizPhone(businessInfo.phone);
+    setBizEmail(businessInfo.email);
+    setBizAddress(businessInfo.address);
+    setBizDaysOpen(businessInfo.daysOpen);
+    setBizDailyHours(businessInfo.dailyHours);
+    setBizHoursSummary(businessInfo.hoursSummary);
+    setBizHoursNote(businessInfo.hoursNote);
+    setBizCrewCapacity(businessInfo.crewCapacity);
+  }, [businessInfo]);
 
   // Keep selected dialogue thread synced with loaded Firestore customers or message threads
   useEffect(() => {
@@ -149,7 +213,7 @@ export const AdminDashboard: React.FC = () => {
 
   const handleOpenEditQuote = (quote: QuoteRequest) => {
     setEditingQuote(quote);
-    setQuotePriceEstimate(quote.estimatedPrice || 250);
+    setQuotePriceEstimate(quote.estimatedPrice ?? 250);
     setQuoteAdminNote(quote.adminNotes || '');
   };
 
@@ -162,8 +226,10 @@ export const AdminDashboard: React.FC = () => {
   const handleConvertQuoteSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!convertingQuote) return;
-    await convertQuoteToAppointment(convertingQuote.id, convertDate, convertTime, convertTech);
-    setConvertingQuote(null);
+    const created = await convertQuoteToAppointment(convertingQuote.id, convertDate, convertTime, convertTech);
+    if (created) {
+      setConvertingQuote(null);
+    }
   };
 
   const handleCreateManualAppt = async (e: React.FormEvent) => {
@@ -171,6 +237,10 @@ export const AdminDashboard: React.FC = () => {
     setManualError(null);
     const srv = services.find((s) => s.id === manualServiceId);
     const tech = technicians.find((t) => t.id === manualTechId) || technicians[0];
+    if (!tech) {
+      setManualError('No authorized field technician available. Add a technician under Security & Settings first.');
+      return;
+    }
 
     const result = await addManualAppointment({
       customerId: `cust-manual-${Date.now()}`,
@@ -184,6 +254,7 @@ export const AdminDashboard: React.FC = () => {
       scheduledTime: manualTime,
       technicianId: tech.id,
       technicianName: tech.name,
+      technicianEmail: tech.email || undefined,
       notes: manualNotes,
       price: manualPrice
     });
@@ -202,11 +273,14 @@ export const AdminDashboard: React.FC = () => {
 
   const handleCreateBlock = async (e: React.FormEvent) => {
     e.preventDefault();
+    setBlockError(null);
     if (!blockDate || !blockReason) return;
     const res = await blockSlot(blockDate, blockTimeSlot, blockReason);
     if (res.success) {
       setBlockModalOpen(false);
       setBlockReason('');
+    } else {
+      setBlockError(res.error || 'Unable to block slot.');
     }
   };
 
@@ -214,7 +288,7 @@ export const AdminDashboard: React.FC = () => {
     setModifyingAppt(appt);
     setModDate(appt.scheduledDate);
     setModTime(appt.scheduledTime);
-    setModTechId(appt.technicianId);
+    setModTechId(appt.technicianId || technicians[0]?.id || '');
     setModError(null);
   };
 
@@ -236,19 +310,25 @@ export const AdminDashboard: React.FC = () => {
     setCustEditPhone(cust.phone);
     setCustEditAddress(cust.address);
     setCustEditNotes(cust.notes || '');
+    setCustEditError(null);
   };
 
   const handleSaveCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!editingCustomer) return;
-    await updateCustomerRecordByAdmin(editingCustomer.id, {
+    setCustEditError(null);
+    const res = await updateCustomerRecordByAdmin(editingCustomer.id, {
       name: custEditName,
       email: custEditEmail,
       phone: custEditPhone,
       address: custEditAddress,
       notes: custEditNotes
     });
-    setEditingCustomer(null);
+    if (res.success) {
+      setEditingCustomer(null);
+    } else {
+      setCustEditError(res.error || 'Could not save customer record.');
+    }
   };
 
   const handleOpenPaymentModal = (appt?: Appointment) => {
@@ -276,6 +356,83 @@ export const AdminDashboard: React.FC = () => {
     setPayNotes('');
   };
 
+  if (!authReady) {
+    return (
+      <div className="py-16 max-w-md mx-auto px-4 text-center text-xs text-[#555555]">
+        Checking administrator authentication...
+      </div>
+    );
+  }
+
+  if (!firebaseUser) {
+    return (
+      <AuthCard
+        portalType="admin"
+        badgeText="Admin Operations Console"
+        title="Administrator Sign In"
+        description="Sign in with the verified business owner account (mis161group8@gmail.com) to manage quotes, schedules, CRM records, and payments."
+        googleButtonLabel="Sign In with Google"
+        onBackHome={() => setActiveView('home')}
+      />
+    );
+  }
+
+  if (!isEmailVerified) {
+    return (
+      <div className="py-12 max-w-xl mx-auto px-4 sm:px-6 text-[#222222] space-y-4">
+        <EmailVerificationBanner />
+        <div className="flex items-center justify-center gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => void signOutUser()}
+            className="btn-rounded px-4 py-2 bg-white border border-[#E8EEF1] text-xs font-semibold text-[#555555] hover:text-rose-700 cursor-pointer"
+          >
+            Sign Out
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveView('home')}
+            className="btn-rounded px-4 py-2 bg-[#E8EEF1] text-xs font-semibold text-[#263F50] cursor-pointer"
+          >
+            Return to Home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAdminAuthorized) {
+    return (
+      <div className="py-12 max-w-lg mx-auto px-4 sm:px-6 text-[#222222]">
+        <div className="bg-white rounded-3xl p-8 border border-[#E8EEF1] shadow-sm text-center space-y-4">
+          <div className="w-12 h-12 rounded-2xl bg-amber-50 border border-amber-200 text-amber-600 mx-auto flex items-center justify-center">
+            <ShieldAlert className="w-6 h-6" />
+          </div>
+          <h2 className="text-xl font-bold text-[#222222]">Administrator Access Restricted</h2>
+          <p className="text-xs text-[#555555] leading-relaxed">
+            Signed in as <strong>{firebaseUser.email}</strong>. Only the verified business owner account (<code className="font-mono font-semibold text-[#263F50]">mis161group8@gmail.com</code>) or an authorized administrator can open the Admin Operations Console.
+          </p>
+          <div className="flex flex-wrap items-center justify-center gap-2.5 pt-2">
+            <button
+              type="button"
+              onClick={() => setActiveView('customer_portal')}
+              className="btn-rounded px-4 py-2 bg-[#263F50] text-white text-xs font-semibold cursor-pointer"
+            >
+              Go to Customer Portal
+            </button>
+            <button
+              type="button"
+              onClick={() => void signOutUser()}
+              className="btn-rounded px-4 py-2 bg-white border border-[#E8EEF1] text-[#555555] hover:text-rose-700 text-xs font-semibold cursor-pointer"
+            >
+              Sign Out &amp; Switch Account
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="py-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-[#222222]">
       {/* Top Header */}
@@ -283,28 +440,48 @@ export const AdminDashboard: React.FC = () => {
         <div>
           <div className="flex items-center gap-2">
             <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-[#E8EEF1] text-[#263F50] border border-[#d2dce2]">
-              Admin Operations Console · Classroom Demonstration (Fictional Data)
+              Admin Operations Console
             </span>
           </div>
           <h1 className="text-2xl sm:text-3xl font-black text-[#222222] mt-1">
             Dispatch &amp; Operations Command Center
           </h1>
           <p className="text-sm text-[#555555]">
-            Real-time management for quotes, technicians, 8:00 AM – 8:00 PM schedules, payments, and security controls.
+            Real-time management for quotes, technicians, {businessInfo.dailyHours} schedules, payments, and security controls.
           </p>
         </div>
 
-        {/* Security MFA Badge */}
+        {/* Signed-In Admin Badge & Sign Out */}
         <div className="flex flex-wrap items-center gap-2.5">
+          <div className="px-3.5 py-1.5 rounded-full bg-white border border-[#E8EEF1] text-xs font-semibold text-[#555555] shadow-xs">
+            Admin: <strong className="text-[#263F50]">{firebaseUser.email}</strong>
+          </div>
           <button
-            onClick={() => setActiveTab('security')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-[#E8EEF1] text-xs font-bold bg-white text-[#263F50] hover:bg-[#E8EEF1] shadow-xs transition-colors cursor-pointer"
+            type="button"
+            onClick={() => void signOutUser()}
+            className="btn-rounded px-3.5 py-1.5 bg-white hover:bg-rose-50 text-[#555555] hover:text-rose-700 border border-[#E8EEF1] text-xs font-semibold flex items-center gap-1.5 shadow-xs transition-colors cursor-pointer"
           >
-            <Lock className="w-3.5 h-3.5 text-[#263F50]" />
-            <span>MFA: {currentUser.mfaEnabled ? 'Protected' : 'Disabled'}</span>
+            <LogOut className="w-3.5 h-3.5" />
+            <span>Sign Out</span>
           </button>
         </div>
       </div>
+
+      {firestoreError && (
+        <div className="mt-4 p-3.5 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            <span>{firestoreError}</span>
+          </div>
+          <button
+            type="button"
+            onClick={clearFirestoreError}
+            className="text-[11px] font-bold text-rose-700 hover:underline shrink-0 cursor-pointer"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* KPI Overview Strip */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 py-6">
@@ -413,7 +590,7 @@ export const AdminDashboard: React.FC = () => {
           }`}
         >
           <Lock className="w-3.5 h-3.5" />
-          <span>Security & Roles (RBAC / MFA)</span>
+          <span>Security &amp; Settings (RBAC)</span>
         </button>
 
         <button
@@ -449,7 +626,7 @@ export const AdminDashboard: React.FC = () => {
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl bg-white border border-slate-200 text-xs text-slate-700 shadow-xs">
                 <Mail className="w-3.5 h-3.5 text-cyan-600" />
-                <span>Email Target: <strong className="text-slate-900">dispatch.demo@example.com (Classroom Demo)</strong></span>
+                <span>Email Target: <strong className="text-slate-900">mis161group8@gmail.com</strong></span>
               </div>
             </div>
           </div>
@@ -485,8 +662,8 @@ export const AdminDashboard: React.FC = () => {
                         <span><strong>Phone:</strong> {notif.customerPhone}</span>
                         <span><strong>Email:</strong> {notif.customerEmail}</span>
                         <span><strong>Location:</strong> {notif.propertyAddress}</span>
-                        {notif.squareFootage && <span><strong>Size:</strong> {notif.squareFootage} sq ft</span>}
-                        {notif.estimatedPrice && (
+                        {typeof notif.squareFootage === 'number' && <span><strong>Size:</strong> {notif.squareFootage} sq ft</span>}
+                        {typeof notif.estimatedPrice === 'number' && (
                           <span className="font-bold text-cyan-700 bg-cyan-50 px-2 py-0.5 rounded-md">
                             Direct Price: ${notif.estimatedPrice}
                           </span>
@@ -655,13 +832,34 @@ export const AdminDashboard: React.FC = () => {
                             </span>
                           </td>
                           <td className="py-3 px-4">
-                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold capitalize ${
-                              appt.paymentStatus === 'paid'
-                                ? 'bg-emerald-50 text-emerald-700'
-                                : 'bg-amber-50 text-amber-800'
-                            }`}>
-                              ${appt.price} ({appt.paymentStatus})
-                            </span>
+                            <div className="flex items-center gap-1.5">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold capitalize ${
+                                appt.paymentStatus === 'paid'
+                                  ? 'bg-emerald-50 text-emerald-700'
+                                  : appt.paymentStatus === 'overdue'
+                                  ? 'bg-rose-50 text-rose-700'
+                                  : 'bg-amber-50 text-amber-800'
+                              }`}>
+                                ${appt.price}
+                              </span>
+                              <select
+                                value={appt.paymentStatus}
+                                onChange={(e) =>
+                                  void updatePaymentStatus(
+                                    appt.id,
+                                    e.target.value as Appointment['paymentStatus']
+                                  )
+                                }
+                                aria-label={`Payment status for ${appt.id}`}
+                                className="px-2 py-0.5 rounded-lg border border-slate-200 bg-white text-[10px] font-semibold text-slate-700 capitalize focus:outline-none"
+                              >
+                                <option value="pending">pending</option>
+                                <option value="invoiced">invoiced</option>
+                                <option value="paid">paid</option>
+                                <option value="overdue">overdue</option>
+                                <option value="refunded">refunded</option>
+                              </select>
+                            </div>
                           </td>
                           <td className="py-3 px-4 text-right">
                             <div className="flex items-center justify-end gap-1.5">
@@ -817,15 +1015,20 @@ export const AdminDashboard: React.FC = () => {
                       <span className="text-slate-600">{q.areaDescription}</span>
                     </div>
                   )}
-                  {q.squareFootage && (
+                  {typeof q.squareFootage === 'number' && (
                     <div className="text-[11px] text-slate-500">
                       Approximate Area: <span className="font-semibold">{q.squareFootage} sq ft</span>
                     </div>
                   )}
-                  {q.estimatedPrice && (
+                  {typeof q.estimatedPrice === 'number' ? (
                     <div className="pt-1 border-t border-sky-100 font-bold text-sky-800 flex justify-between">
                       <span>Quoted Price:</span>
                       <span>${q.estimatedPrice}</span>
+                    </div>
+                  ) : (
+                    <div className="pt-1 border-t border-sky-100 text-slate-500 italic flex justify-between">
+                      <span>Quoted Price:</span>
+                      <span>Not quoted yet (click Edit Status &amp; Pricing)</span>
                     </div>
                   )}
                   {q.adminNotes && (
@@ -949,7 +1152,7 @@ export const AdminDashboard: React.FC = () => {
                   </>
                 ) : (
                   <p className="text-xs text-[#555555]">
-                    No fictional customer records found.
+                    Customer profiles created by signed-in users will appear here automatically.
                   </p>
                 )}
               </div>
@@ -1105,53 +1308,123 @@ export const AdminDashboard: React.FC = () => {
               </table>
             </div>
           </div>
+
+          {/* Appointment Billing & Invoice Statuses */}
+          <div className="bg-white rounded-3xl border border-sky-100 shadow-sm overflow-hidden">
+            <div className="px-6 py-4 border-b border-sky-50 flex justify-between items-center bg-sky-50/30">
+              <span className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                Appointment Billing &amp; Payment Statuses ({appointments.filter((a) => a.status !== 'cancelled').length})
+              </span>
+              <span className="text-[11px] text-slate-500">Update billing status directly or record payment</span>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-sky-50/50 text-slate-600 font-bold uppercase tracking-wider border-b border-sky-100">
+                  <tr>
+                    <th className="py-3 px-4">Appointment</th>
+                    <th className="py-3 px-4">Customer</th>
+                    <th className="py-3 px-4">Service</th>
+                    <th className="py-3 px-4">Amount</th>
+                    <th className="py-3 px-4">Payment Status</th>
+                    <th className="py-3 px-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-sky-50 text-slate-700">
+                  {appointments.filter((a) => a.status !== 'cancelled').length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-8 px-4 text-center text-xs text-slate-400">
+                        No active appointments to bill right now.
+                      </td>
+                    </tr>
+                  ) : (
+                    appointments
+                      .filter((a) => a.status !== 'cancelled')
+                      .map((appt) => (
+                        <tr key={appt.id} className="hover:bg-sky-50/40 transition-colors">
+                          <td className="py-3 px-4 font-mono font-bold text-sky-800">{appt.id}</td>
+                          <td className="py-3 px-4 font-semibold text-slate-900">{appt.customerName}</td>
+                          <td className="py-3 px-4">{appt.serviceName}</td>
+                          <td className="py-3 px-4 font-bold tabular-nums">${appt.price}</td>
+                          <td className="py-3 px-4">
+                            <select
+                              value={appt.paymentStatus}
+                              onChange={(e) =>
+                                void updatePaymentStatus(
+                                  appt.id,
+                                  e.target.value as Appointment['paymentStatus']
+                                )
+                              }
+                              className="px-2.5 py-1 rounded-xl border border-sky-200 bg-white text-xs font-semibold text-slate-800 capitalize focus:outline-none"
+                            >
+                              <option value="pending">pending</option>
+                              <option value="invoiced">invoiced</option>
+                              <option value="paid">paid</option>
+                              <option value="overdue">overdue</option>
+                              <option value="refunded">refunded</option>
+                            </select>
+                          </td>
+                          <td className="py-3 px-4 text-right">
+                            {appt.paymentStatus !== 'paid' ? (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenPaymentModal(appt)}
+                                className="btn-rounded px-3 py-1 bg-sky-500 hover:bg-sky-600 text-white text-[11px] font-semibold cursor-pointer"
+                              >
+                                Record Payment
+                              </button>
+                            ) : (
+                              <span className="text-[11px] font-semibold text-emerald-700">
+                                Paid {appt.paidAt ? `(${appt.paidAt})` : ''}
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       )}
 
       {/* ============================================================== */}
-      {/* TAB 5: SECURITY & RBAC (Feature 9, Stories 48-50) */}
+      {/* TAB 5: SECURITY, STAFF & BUSINESS SETTINGS */}
       {/* ============================================================== */}
       {activeTab === 'security' && (
         <div className="space-y-6 max-w-3xl">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">Security & System Administration</h2>
+            <h2 className="text-lg font-bold text-slate-900">Security, Roles &amp; Business Settings</h2>
             <p className="text-xs text-slate-500">
-              Multi-factor authentication (MFA) enforcement and role-based access control (RBAC).
+              Firebase Authentication security posture, field technician permissions, and live website contact/hours settings.
             </p>
           </div>
 
-          {/* MFA Toggle Card (Story 49) */}
+          {/* Honest Firebase Auth & Security Enforcement Card */}
           <div className="bg-white rounded-3xl p-6 sm:p-8 border border-sky-100 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center">
-                  <KeyRound className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Multi-Factor Authentication (MFA)</h3>
-                  <p className="text-xs text-slate-500">Require 2FA verification code for administrative sessions</p>
-                </div>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center">
+                <KeyRound className="w-5 h-5" />
               </div>
-
-              <button
-                onClick={() => setMfaModalOpen(true)}
-                className={`btn-rounded px-4 py-2 text-xs font-semibold cursor-pointer transition-colors ${
-                  currentUser.mfaEnabled
-                    ? 'bg-sky-500 text-white'
-                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                }`}
-              >
-                {currentUser.mfaEnabled ? 'MFA Configured (Enabled)' : 'Configure MFA'}
-              </button>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">Firebase Authentication &amp; Multi-Factor Status</h3>
+                <p className="text-xs text-slate-500">
+                  Real Firebase Email Verification + Eight Pillars Firestore Security Rules active
+                </p>
+              </div>
             </div>
 
-            <div className="text-xs text-slate-600 bg-sky-50/50 p-4 rounded-2xl border border-sky-100">
-              Status: <span className="font-bold text-slate-800">{currentUser.mfaEnabled ? 'Active' : 'Inactive'}</span>.
-              When enabled, any administrative login requires a secondary 6-digit TOTP code verification to guard financial records and customer PII.
+            <div className="text-xs text-slate-600 bg-sky-50/50 p-4 rounded-2xl border border-sky-100 space-y-2 leading-relaxed">
+              <div>
+                <strong>Active Protection:</strong> Administrative access is enforced server-side in Cloud Firestore Rules using verified Firebase ID tokens (<code className="font-mono text-[#263F50]">email_verified == true</code>) and the <code className="font-mono text-[#263F50]">/admins</code> / <code className="font-mono text-[#263F50]">/staff</code> authorization lists.
+              </div>
+              <div>
+                <strong>Multi-Factor Authentication (MFA):</strong> Real SMS/TOTP 2FA enrollment in Firebase (<code className="font-mono text-[#263F50]">multiFactor(user)</code>) requires upgrading the Firebase project from the free Spark tier to Google Cloud Identity Platform (Blaze billing linked). No simulated or client-side passcode modal is used.
+              </div>
             </div>
           </div>
 
-          {/* Role-Based Access Control Matrix (Story 50) */}
+          {/* Role-Based Access Control Matrix */}
           <div className="bg-white rounded-3xl p-6 sm:p-8 border border-sky-100 shadow-sm space-y-4">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-full bg-sky-100 text-sky-600 flex items-center justify-center">
@@ -1159,7 +1432,7 @@ export const AdminDashboard: React.FC = () => {
               </div>
               <div>
                 <h3 className="text-base font-bold text-slate-900">Role-Based Access Control (RBAC) Matrix</h3>
-                <p className="text-xs text-slate-500">Permissions restricted strictly by responsibility (Story 50)</p>
+                <p className="text-xs text-slate-500">Permissions enforced strictly by Firestore Security Rules</p>
               </div>
             </div>
 
@@ -1175,31 +1448,31 @@ export const AdminDashboard: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-sky-100 text-slate-700">
                   <tr>
-                    <td className="py-2.5 px-3 font-medium">Request Quotes & Book Online</td>
+                    <td className="py-2.5 px-3 font-medium">Request Quotes &amp; Book Online</td>
                     <td className="py-2.5 px-3 text-center text-emerald-600 font-bold">Yes</td>
                     <td className="py-2.5 px-3 text-center text-slate-400">No</td>
                     <td className="py-2.5 px-3 text-center text-emerald-600 font-bold">Yes</td>
                   </tr>
                   <tr>
-                    <td className="py-2.5 px-3 font-medium">View Personal History & Reschedule</td>
+                    <td className="py-2.5 px-3 font-medium">View Personal History &amp; Reschedule</td>
                     <td className="py-2.5 px-3 text-center text-emerald-600 font-bold">Yes</td>
                     <td className="py-2.5 px-3 text-center text-slate-400">No</td>
                     <td className="py-2.5 px-3 text-center text-emerald-600 font-bold">Yes</td>
                   </tr>
                   <tr>
-                    <td className="py-2.5 px-3 font-medium">View Assigned Route & Update Status</td>
+                    <td className="py-2.5 px-3 font-medium">View Assigned Route &amp; Update Status</td>
                     <td className="py-2.5 px-3 text-center text-slate-400">No</td>
                     <td className="py-2.5 px-3 text-center text-emerald-600 font-bold">Yes</td>
                     <td className="py-2.5 px-3 text-center text-emerald-600 font-bold">Yes</td>
                   </tr>
                   <tr>
-                    <td className="py-2.5 px-3 font-medium">Block Schedule & Prevent Double Book</td>
+                    <td className="py-2.5 px-3 font-medium">Block Schedule &amp; Prevent Double Book</td>
                     <td className="py-2.5 px-3 text-center text-slate-400">No</td>
                     <td className="py-2.5 px-3 text-center text-slate-400">No</td>
                     <td className="py-2.5 px-3 text-center text-emerald-600 font-bold">Yes</td>
                   </tr>
                   <tr>
-                    <td className="py-2.5 px-3 font-medium">Financial Records & Payment Tracking</td>
+                    <td className="py-2.5 px-3 font-medium">Financial Records &amp; Payment Tracking</td>
                     <td className="py-2.5 px-3 text-center text-slate-400">No</td>
                     <td className="py-2.5 px-3 text-center text-slate-400">No</td>
                     <td className="py-2.5 px-3 text-center text-emerald-600 font-bold">Yes</td>
@@ -1207,6 +1480,280 @@ export const AdminDashboard: React.FC = () => {
                 </tbody>
               </table>
             </div>
+          </div>
+
+          {/* Field Technician Staff Authorization (/staff) */}
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#E8EEF1] shadow-sm space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-[#E8EEF1] text-[#263F50] flex items-center justify-center">
+                <UserPlus className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-[#222222]">Authorized Field Technicians</h3>
+                <p className="text-xs text-[#555555]">
+                  Grant a verified user&apos;s Firebase UID access to the Technical Portal, dispatch roster, and their assigned jobs.
+                </p>
+              </div>
+            </div>
+
+            {staffError && (
+              <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-700">
+                {staffError}
+              </div>
+            )}
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setStaffError(null);
+                setSavingStaff(true);
+                try {
+                  const res = await grantStaffAccess({
+                    uid: staffUidInput,
+                    email: staffEmailInput,
+                    name: staffNameInput,
+                    phone: staffPhoneInput || undefined,
+                    vehicle: staffVehicleInput || undefined
+                  });
+                  if (res.success) {
+                    setStaffUidInput('');
+                    setStaffNameInput('');
+                    setStaffEmailInput('');
+                    setStaffPhoneInput('');
+                    setStaffVehicleInput('Sacramento Mobile Service Rig');
+                  } else {
+                    setStaffError(res.error || 'Could not save staff authorization.');
+                  }
+                } finally {
+                  setSavingStaff(false);
+                }
+              }}
+              className="grid grid-cols-1 sm:grid-cols-2 gap-3"
+            >
+              <input
+                type="text"
+                required
+                value={staffUidInput}
+                onChange={(e) => setStaffUidInput(e.target.value)}
+                placeholder="Firebase User UID *"
+                className="px-3.5 py-2 rounded-2xl border border-[#E8EEF1] bg-[#F8F9F7] text-xs focus:outline-none focus:border-[#263F50]"
+              />
+              <input
+                type="email"
+                required
+                value={staffEmailInput}
+                onChange={(e) => setStaffEmailInput(e.target.value)}
+                placeholder="Technician Email *"
+                className="px-3.5 py-2 rounded-2xl border border-[#E8EEF1] bg-[#F8F9F7] text-xs focus:outline-none focus:border-[#263F50]"
+              />
+              <input
+                type="text"
+                required
+                value={staffNameInput}
+                onChange={(e) => setStaffNameInput(e.target.value)}
+                placeholder="Full Name *"
+                className="px-3.5 py-2 rounded-2xl border border-[#E8EEF1] bg-[#F8F9F7] text-xs focus:outline-none focus:border-[#263F50]"
+              />
+              <input
+                type="tel"
+                value={staffPhoneInput}
+                onChange={(e) => setStaffPhoneInput(e.target.value)}
+                placeholder="Direct Phone (optional)"
+                className="px-3.5 py-2 rounded-2xl border border-[#E8EEF1] bg-[#F8F9F7] text-xs focus:outline-none focus:border-[#263F50]"
+              />
+              <input
+                type="text"
+                value={staffVehicleInput}
+                onChange={(e) => setStaffVehicleInput(e.target.value)}
+                placeholder="Assigned Truck / Rig (e.g. Truck #01)"
+                className="sm:col-span-2 px-3.5 py-2 rounded-2xl border border-[#E8EEF1] bg-[#F8F9F7] text-xs focus:outline-none focus:border-[#263F50]"
+              />
+              <div className="sm:col-span-2">
+                <button
+                  type="submit"
+                  disabled={savingStaff}
+                  className="btn-rounded px-4 py-2 bg-[#263F50] hover:bg-[#1A2E3D] text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
+                >
+                  {savingStaff ? 'Saving...' : 'Authorize Technician Account'}
+                </button>
+              </div>
+            </form>
+
+            {staffAccounts.length > 0 && (
+              <div className="space-y-2 pt-2 border-t border-[#E8EEF1]">
+                {staffAccounts.map((st) => (
+                  <div
+                    key={st.uid}
+                    className="flex items-center justify-between gap-3 p-3 rounded-2xl bg-[#F8F9F7] border border-[#E8EEF1] text-xs"
+                  >
+                    <div>
+                      <div className="font-bold text-[#222222]">
+                        {st.name} {st.vehicle ? `· ${st.vehicle}` : ''}
+                      </div>
+                      <div className="text-[#555555]">
+                        {st.email} {st.phone ? `· ${st.phone}` : ''} · <span className="font-mono text-[11px]">{st.uid}</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void revokeStaffAccess(st.uid)}
+                      className="btn-rounded px-3 py-1 bg-white hover:bg-rose-50 text-rose-600 border border-rose-200 text-[11px] font-semibold cursor-pointer"
+                    >
+                      Revoke
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Editable Business Contact & Operating Hours (/siteConfig/business) */}
+          <div className="bg-white rounded-3xl p-6 sm:p-8 border border-[#E8EEF1] shadow-sm space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-[#E8EEF1] text-[#263F50] flex items-center justify-center">
+                <Building2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-[#222222]">Business Contact &amp; Operating Hours</h3>
+                <p className="text-xs text-[#555555]">
+                  Updates contact details, service hours, and crew capacity live across the website and scheduler.
+                </p>
+              </div>
+            </div>
+
+            {bizError && (
+              <div className="p-3 rounded-2xl bg-rose-50 border border-rose-200 text-xs text-rose-700">
+                {bizError}
+              </div>
+            )}
+
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setBizError(null);
+                setSavingBiz(true);
+                try {
+                  const res = await updateBusinessInfo({
+                    companyName: bizCompanyName,
+                    phone: bizPhone,
+                    email: bizEmail,
+                    address: bizAddress,
+                    daysOpen: bizDaysOpen,
+                    dailyHours: bizDailyHours,
+                    hoursSummary: bizHoursSummary,
+                    hoursNote: bizHoursNote,
+                    crewCapacity: Number(bizCrewCapacity) || 1
+                  });
+                  if (!res.success) {
+                    setBizError(res.error || 'Could not update business details.');
+                  }
+                } finally {
+                  setSavingBiz(false);
+                }
+              }}
+              className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs"
+            >
+              <div>
+                <label className="block font-semibold text-[#222222] mb-1">Business Name</label>
+                <input
+                  type="text"
+                  required
+                  value={bizCompanyName}
+                  onChange={(e) => setBizCompanyName(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-2xl border border-[#E8EEF1] bg-[#F8F9F7] focus:outline-none focus:border-[#263F50]"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-[#222222] mb-1">Business Phone</label>
+                <input
+                  type="tel"
+                  required
+                  value={bizPhone}
+                  onChange={(e) => setBizPhone(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-2xl border border-[#E8EEF1] bg-[#F8F9F7] focus:outline-none focus:border-[#263F50]"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-[#222222] mb-1">Public Email</label>
+                <input
+                  type="email"
+                  required
+                  value={bizEmail}
+                  onChange={(e) => setBizEmail(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-2xl border border-[#E8EEF1] bg-[#F8F9F7] focus:outline-none focus:border-[#263F50]"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-[#222222] mb-1">Service Region / Address</label>
+                <input
+                  type="text"
+                  required
+                  value={bizAddress}
+                  onChange={(e) => setBizAddress(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-2xl border border-[#E8EEF1] bg-[#F8F9F7] focus:outline-none focus:border-[#263F50]"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-[#222222] mb-1">Days Open</label>
+                <input
+                  type="text"
+                  required
+                  value={bizDaysOpen}
+                  onChange={(e) => setBizDaysOpen(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-2xl border border-[#E8EEF1] bg-[#F8F9F7] focus:outline-none focus:border-[#263F50]"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-[#222222] mb-1">Daily Hours</label>
+                <input
+                  type="text"
+                  required
+                  value={bizDailyHours}
+                  onChange={(e) => setBizDailyHours(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-2xl border border-[#E8EEF1] bg-[#F8F9F7] focus:outline-none focus:border-[#263F50]"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-[#222222] mb-1">Top Bar Hours Summary</label>
+                <input
+                  type="text"
+                  required
+                  value={bizHoursSummary}
+                  onChange={(e) => setBizHoursSummary(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-2xl border border-[#E8EEF1] bg-[#F8F9F7] focus:outline-none focus:border-[#263F50]"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-[#222222] mb-1">Concurrent Crew Capacity per Slot</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  required
+                  value={bizCrewCapacity}
+                  onChange={(e) => setBizCrewCapacity(Number(e.target.value))}
+                  className="w-full px-3.5 py-2 rounded-2xl border border-[#E8EEF1] bg-[#F8F9F7] focus:outline-none focus:border-[#263F50]"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block font-semibold text-[#222222] mb-1">Scheduling Note</label>
+                <textarea
+                  rows={2}
+                  value={bizHoursNote}
+                  onChange={(e) => setBizHoursNote(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-2xl border border-[#E8EEF1] bg-[#F8F9F7] focus:outline-none focus:border-[#263F50]"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <button
+                  type="submit"
+                  disabled={savingBiz}
+                  className="btn-rounded px-5 py-2.5 bg-[#263F50] hover:bg-[#1A2E3D] text-white text-xs font-semibold cursor-pointer disabled:opacity-50"
+                >
+                  {savingBiz ? 'Saving Settings...' : 'Save Business Contact & Hours'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -1352,7 +1899,7 @@ export const AdminDashboard: React.FC = () => {
                         <span className="font-normal opacity-75">{msg.timestamp}</span>
                       </div>
                       <p className="leading-relaxed">{msg.message}</p>
-                      {msg.directPrice && (
+                      {typeof msg.directPrice === 'number' && (
                         <div className="pt-1.5 mt-1 border-t border-white/20 font-black flex items-center justify-between text-[11px]">
                           <span>Direct Locked Price:</span>
                           <span className="bg-white/20 px-2 py-0.5 rounded-md">${msg.directPrice}</span>
@@ -1513,6 +2060,7 @@ export const AdminDashboard: React.FC = () => {
                 <label className="block text-xs font-bold text-slate-700 mb-1">Service Date</label>
                 <input
                   type="date"
+                  min={todayLA}
                   value={convertDate}
                   onChange={(e) => setConvertDate(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-2xl border border-sky-200 text-sm focus:ring-2 focus:ring-sky-400"
@@ -1527,33 +2075,40 @@ export const AdminDashboard: React.FC = () => {
                   onChange={(e) => setConvertTime(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-2xl border border-sky-200 text-sm focus:ring-2 focus:ring-sky-400"
                 >
-                  <option value="08:00 AM - 10:00 AM">08:00 AM - 10:00 AM</option>
-                  <option value="10:30 AM - 12:30 PM">10:30 AM - 12:30 PM</option>
-                  <option value="01:00 PM - 03:00 PM">01:00 PM - 03:00 PM</option>
-                  <option value="03:30 PM - 05:30 PM">03:30 PM - 05:30 PM</option>
-                  <option value="06:00 PM - 08:00 PM">06:00 PM - 08:00 PM</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Assign Technician</label>
-                <select
-                  value={convertTech}
-                  onChange={(e) => setConvertTech(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-2xl border border-sky-200 text-sm focus:ring-2 focus:ring-sky-400"
-                >
-                  {technicians.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name} ({t.vehicle})
+                  {TIME_SLOTS.map((slot) => (
+                    <option key={slot} value={slot}>
+                      {slot}
                     </option>
                   ))}
                 </select>
               </div>
 
+              <div>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Assign Technician</label>
+                {technicians.length === 0 ? (
+                  <div className="p-2.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                    No authorized field technicians yet. Add a technician under Security &amp; Settings first.
+                  </div>
+                ) : (
+                  <select
+                    value={convertTech}
+                    onChange={(e) => setConvertTech(e.target.value)}
+                    className="w-full px-3.5 py-2 rounded-2xl border border-sky-200 text-sm focus:ring-2 focus:ring-sky-400"
+                  >
+                    {technicians.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.vehicle})
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
               <div className="flex gap-2 pt-2">
                 <button
                   type="submit"
-                  className="btn-rounded flex-1 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-semibold text-xs cursor-pointer"
+                  disabled={technicians.length === 0}
+                  className="btn-rounded flex-1 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-semibold text-xs cursor-pointer disabled:opacity-50"
                 >
                   Confirm & Schedule Job
                 </button>
@@ -1649,6 +2204,7 @@ export const AdminDashboard: React.FC = () => {
                   <label className="block text-xs font-bold text-slate-700 mb-1">Date</label>
                   <input
                     type="date"
+                    min={todayLA}
                     value={manualDate}
                     onChange={(e) => setManualDate(e.target.value)}
                     className="w-full px-3 py-2 rounded-2xl border border-sky-200 text-xs"
@@ -1662,28 +2218,34 @@ export const AdminDashboard: React.FC = () => {
                     onChange={(e) => setManualTime(e.target.value)}
                     className="w-full px-3 py-2 rounded-2xl border border-sky-200 text-xs"
                   >
-                    <option value="08:00 AM - 10:00 AM">08:00 AM - 10:00 AM</option>
-                    <option value="10:30 AM - 12:30 PM">10:30 AM - 12:30 PM</option>
-                    <option value="01:00 PM - 03:00 PM">01:00 PM - 03:00 PM</option>
-                    <option value="03:30 PM - 05:30 PM">03:30 PM - 05:30 PM</option>
-                    <option value="06:00 PM - 08:00 PM">06:00 PM - 08:00 PM</option>
+                    {TIME_SLOTS.map((slot) => (
+                      <option key={slot} value={slot}>
+                        {slot}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Assign Field Technician</label>
-                <select
-                  value={manualTechId}
-                  onChange={(e) => setManualTechId(e.target.value)}
-                  className="w-full px-3 py-2 rounded-2xl border border-sky-200 text-xs"
-                >
-                  {technicians.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name} ({t.vehicle})
-                    </option>
-                  ))}
-                </select>
+                {technicians.length === 0 ? (
+                  <div className="p-2.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                    No authorized field technicians yet. Add a technician under Security &amp; Settings first.
+                  </div>
+                ) : (
+                  <select
+                    value={manualTechId}
+                    onChange={(e) => setManualTechId(e.target.value)}
+                    className="w-full px-3 py-2 rounded-2xl border border-sky-200 text-xs"
+                  >
+                    {technicians.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.vehicle})
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div>
@@ -1700,7 +2262,8 @@ export const AdminDashboard: React.FC = () => {
               <div className="flex gap-2 pt-2">
                 <button
                   type="submit"
-                  className="btn-rounded flex-1 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-semibold text-xs cursor-pointer shadow-xs"
+                  disabled={technicians.length === 0}
+                  className="btn-rounded flex-1 py-2.5 bg-sky-500 hover:bg-sky-600 text-white font-semibold text-xs cursor-pointer shadow-xs disabled:opacity-50"
                 >
                   Save Manual Appointment
                 </button>
@@ -1729,11 +2292,18 @@ export const AdminDashboard: React.FC = () => {
               Customers will not be allowed to book appointments during these blocked intervals.
             </p>
 
+            {blockError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl text-xs">
+                {blockError}
+              </div>
+            )}
+
             <form onSubmit={handleCreateBlock} className="space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Target Date</label>
                 <input
                   type="date"
+                  min={todayLA}
                   value={blockDate}
                   onChange={(e) => setBlockDate(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-2xl border border-sky-200 text-sm focus:ring-2 focus:ring-sky-400"
@@ -1749,11 +2319,11 @@ export const AdminDashboard: React.FC = () => {
                   className="w-full px-3.5 py-2 rounded-2xl border border-sky-200 text-sm"
                 >
                   <option value="All Day">All Day (Whole Day Block)</option>
-                  <option value="08:00 AM - 10:00 AM">08:00 AM - 10:00 AM</option>
-                  <option value="10:30 AM - 12:30 PM">10:30 AM - 12:30 PM</option>
-                  <option value="01:00 PM - 03:00 PM">01:00 PM - 03:00 PM</option>
-                  <option value="03:30 PM - 05:30 PM">03:30 PM - 05:30 PM</option>
-                  <option value="06:00 PM - 08:00 PM">06:00 PM - 08:00 PM</option>
+                  {TIME_SLOTS.map((slot) => (
+                    <option key={slot} value={slot}>
+                      {slot}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1778,7 +2348,10 @@ export const AdminDashboard: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setBlockModalOpen(false)}
+                  onClick={() => {
+                    setBlockModalOpen(false);
+                    setBlockError(null);
+                  }}
                   className="btn-rounded px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs"
                 >
                   Cancel
@@ -1807,6 +2380,7 @@ export const AdminDashboard: React.FC = () => {
                 <label className="block text-xs font-bold text-slate-700 mb-1">Date</label>
                 <input
                   type="date"
+                  min={todayLA}
                   value={modDate}
                   onChange={(e) => setModDate(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-2xl border border-sky-200 text-sm"
@@ -1821,27 +2395,33 @@ export const AdminDashboard: React.FC = () => {
                   onChange={(e) => setModTime(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-2xl border border-sky-200 text-sm"
                 >
-                  <option value="08:00 AM - 10:00 AM">08:00 AM - 10:00 AM</option>
-                  <option value="10:30 AM - 12:30 PM">10:30 AM - 12:30 PM</option>
-                  <option value="01:00 PM - 03:00 PM">01:00 PM - 03:00 PM</option>
-                  <option value="03:30 PM - 05:30 PM">03:30 PM - 05:30 PM</option>
-                  <option value="06:00 PM - 08:00 PM">06:00 PM - 08:00 PM</option>
+                  {TIME_SLOTS.map((slot) => (
+                    <option key={slot} value={slot}>
+                      {slot}
+                    </option>
+                  ))}
                 </select>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 mb-1">Assigned Technician</label>
-                <select
-                  value={modTechId}
-                  onChange={(e) => setModTechId(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-2xl border border-sky-200 text-sm"
-                >
-                  {technicians.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name} ({t.vehicle})
-                    </option>
-                  ))}
-                </select>
+                {technicians.length === 0 ? (
+                  <div className="p-2.5 rounded-2xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                    No authorized field technicians yet. Add a technician under Security &amp; Settings first.
+                  </div>
+                ) : (
+                  <select
+                    value={modTechId}
+                    onChange={(e) => setModTechId(e.target.value)}
+                    className="w-full px-3.5 py-2 rounded-2xl border border-sky-200 text-sm"
+                  >
+                    {technicians.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name} ({t.vehicle})
+                      </option>
+                    ))}
+                  </select>
+                )}
               </div>
 
               <div className="flex gap-2 pt-2">
@@ -1869,6 +2449,12 @@ export const AdminDashboard: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-sky-100 space-y-4">
             <h3 className="text-base font-bold text-slate-900">Update Customer Record #{editingCustomer.id}</h3>
+
+            {custEditError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 rounded-2xl text-xs">
+                {custEditError}
+              </div>
+            )}
 
             <form onSubmit={handleSaveCustomer} className="space-y-3">
               <div>
@@ -1905,13 +2491,12 @@ export const AdminDashboard: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 mb-1">Address</label>
+                <label className="block text-xs font-bold text-slate-700 mb-1">Address <span className="font-normal text-slate-400">(optional)</span></label>
                 <input
                   type="text"
                   value={custEditAddress}
                   onChange={(e) => setCustEditAddress(e.target.value)}
                   className="w-full px-3 py-2 rounded-2xl border border-sky-200 text-xs"
-                  required
                 />
               </div>
 

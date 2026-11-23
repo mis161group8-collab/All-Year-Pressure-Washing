@@ -39,6 +39,59 @@ service cloud.firestore {
       return isBootstrappedAdmin() || (isVerifiedEmail() && exists(/databases/$(database)/documents/admins/$(request.auth.uid)));
     }
 
+    function isTechnician() {
+      return isVerifiedEmail() && exists(/databases/$(database)/documents/staff/$(request.auth.uid));
+    }
+
+    function isValidShortStringList(arr, maxLen, maxItemLen) {
+      return arr is list
+        && arr.size() <= maxLen
+        && (arr.size() < 1 || (arr[0] is string && arr[0].size() <= maxItemLen))
+        && (arr.size() < 2 || (arr[1] is string && arr[1].size() <= maxItemLen))
+        && (arr.size() < 3 || (arr[2] is string && arr[2].size() <= maxItemLen))
+        && (arr.size() < 4 || (arr[3] is string && arr[3].size() <= maxItemLen))
+        && (arr.size() < 5 || (arr[4] is string && arr[4].size() <= maxItemLen))
+        && (arr.size() < 6 || (arr[5] is string && arr[5].size() <= maxItemLen))
+        && (arr.size() < 7 || (arr[6] is string && arr[6].size() <= maxItemLen))
+        && (arr.size() < 8 || (arr[7] is string && arr[7].size() <= maxItemLen))
+        && (arr.size() < 9 || (arr[8] is string && arr[8].size() <= maxItemLen))
+        && (arr.size() < 10 || (arr[9] is string && arr[9].size() <= maxItemLen));
+    }
+
+    function isValidPhotoList(photos) {
+      return photos is list
+        && photos.size() <= 5
+        && (photos.size() < 1 || (photos[0] is string && photos[0].size() <= 160000))
+        && (photos.size() < 2 || (photos[1] is string && photos[1].size() <= 160000))
+        && (photos.size() < 3 || (photos[2] is string && photos[2].size() <= 160000))
+        && (photos.size() < 4 || (photos[3] is string && photos[3].size() <= 160000))
+        && (photos.size() < 5 || (photos[4] is string && photos[4].size() <= 160000));
+    }
+
+    function isValidRosterItem(item) {
+      return item is map
+        && item.keys().hasAll(['id', 'name'])
+        && item.keys().hasOnly(['id', 'name', 'vehicle'])
+        && item.id is string && item.id.size() >= 1 && item.id.size() <= 80
+        && item.name is string && item.name.size() >= 1 && item.name.size() <= 120
+        && (!('vehicle' in item) || (item.vehicle is string && item.vehicle.size() <= 160));
+    }
+
+    function isValidDispatchRoster(roster) {
+      return roster is list
+        && roster.size() <= 10
+        && (roster.size() < 1 || isValidRosterItem(roster[0]))
+        && (roster.size() < 2 || isValidRosterItem(roster[1]))
+        && (roster.size() < 3 || isValidRosterItem(roster[2]))
+        && (roster.size() < 4 || isValidRosterItem(roster[3]))
+        && (roster.size() < 5 || isValidRosterItem(roster[4]))
+        && (roster.size() < 6 || isValidRosterItem(roster[5]))
+        && (roster.size() < 7 || isValidRosterItem(roster[6]))
+        && (roster.size() < 8 || isValidRosterItem(roster[7]))
+        && (roster.size() < 9 || isValidRosterItem(roster[8]))
+        && (roster.size() < 10 || isValidRosterItem(roster[9]));
+    }
+
     // 3. Entity Validation Blueprints (No existing() or diff() inside helpers)
     function isValidCustomer(data) {
       return data.keys().hasAll(['uid', 'name', 'email', 'phone', 'role', 'createdAt', 'updatedAt'])
@@ -63,6 +116,18 @@ service cloud.firestore {
         && data.role == 'admin';
     }
 
+    function isValidStaffUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'name', 'role'])
+        && data.keys().hasOnly(['uid', 'email', 'name', 'technicianId', 'phone', 'vehicle', 'role'])
+        && isValidId(data.uid)
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 200
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 120
+        && (!('technicianId' in data) || (data.technicianId is string && data.technicianId.size() <= 80))
+        && (!('phone' in data) || (data.phone is string && data.phone.size() <= 30))
+        && (!('vehicle' in data) || (data.vehicle is string && data.vehicle.size() <= 160))
+        && data.role == 'technician';
+    }
+
     function isValidBlockedSlot(data) {
       return data.keys().hasAll(['id', 'date', 'timeSlot', 'reason', 'createdBy', 'createdAt'])
         && data.keys().hasOnly(['id', 'date', 'timeSlot', 'reason', 'createdBy', 'createdAt'])
@@ -72,6 +137,43 @@ service cloud.firestore {
         && data.reason is string && data.reason.size() >= 1 && data.reason.size() <= 300
         && isValidId(data.createdBy)
         && data.createdAt is timestamp;
+    }
+
+    function isValidSlotAvailability(data) {
+      return data.keys().hasAll(['id', 'date', 'timeSlot', 'bookedCount', 'appointmentIds', 'bookedTechIds', 'updatedAt'])
+        && data.keys().hasOnly(['id', 'date', 'timeSlot', 'bookedCount', 'appointmentIds', 'bookedTechIds', 'updatedAt'])
+        && isValidId(data.id)
+        && data.date is string && data.date.size() == 10 && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && data.timeSlot is string && data.timeSlot.size() >= 3 && data.timeSlot.size() <= 40
+        && data.bookedCount is int && data.bookedCount >= 0 && data.bookedCount <= 10
+        && isValidShortStringList(data.appointmentIds, 10, 128)
+        && isValidShortStringList(data.bookedTechIds, 10, 128)
+        && data.bookedCount == data.appointmentIds.size()
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidSiteConfig(data) {
+      return data.keys().hasAll([
+          'id', 'companyName', 'phone', 'email', 'address',
+          'hoursSummary', 'daysOpen', 'dailyHours', 'crewCapacity', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'id', 'companyName', 'phone', 'email', 'address',
+          'hoursSummary', 'daysOpen', 'dailyHours', 'hoursNote',
+          'crewCapacity', 'dispatchRoster', 'updatedAt'
+        ])
+        && data.id == 'business'
+        && data.companyName is string && data.companyName.size() >= 1 && data.companyName.size() <= 160
+        && data.phone is string && data.phone.size() >= 7 && data.phone.size() <= 30
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 200
+        && data.address is string && data.address.size() >= 1 && data.address.size() <= 300
+        && data.hoursSummary is string && data.hoursSummary.size() >= 1 && data.hoursSummary.size() <= 120
+        && data.daysOpen is string && data.daysOpen.size() >= 1 && data.daysOpen.size() <= 120
+        && data.dailyHours is string && data.dailyHours.size() >= 1 && data.dailyHours.size() <= 120
+        && (!('hoursNote' in data) || (data.hoursNote is string && data.hoursNote.size() <= 500))
+        && data.crewCapacity is int && data.crewCapacity >= 1 && data.crewCapacity <= 20
+        && (!('dispatchRoster' in data) || isValidDispatchRoster(data.dispatchRoster))
+        && data.updatedAt is timestamp;
     }
 
     function isValidQuote(data) {
@@ -86,7 +188,7 @@ service cloud.firestore {
           'removalNeeds', 'otherRemovalDetails', 'timingPreference',
           'preferredDate', 'streetAddress', 'city', 'state', 'zipCode',
           'propertyAddress', 'areaDescription', 'squareFootage',
-          'photoCount', 'status', 'estimatedPrice', 'adminNotes',
+          'photos', 'photoCount', 'status', 'estimatedPrice', 'adminNotes',
           'createdDate', 'createdAt', 'updatedAt'
         ])
         && isValidId(data.id)
@@ -98,8 +200,8 @@ service cloud.firestore {
         && data.serviceName is string && data.serviceName.size() >= 1 && data.serviceName.size() <= 160
         && data.propertyAddress is string && data.propertyAddress.size() >= 1 && data.propertyAddress.size() <= 300
         && (!('mainCategory' in data) || (data.mainCategory is string && data.mainCategory.size() <= 120))
-        && (!('subcategories' in data) || (data.subcategories is list && data.subcategories.size() <= 20 && (data.subcategories.size() == 0 || data.subcategories[0] is string)))
-        && (!('removalNeeds' in data) || (data.removalNeeds is list && data.removalNeeds.size() <= 10 && (data.removalNeeds.size() == 0 || data.removalNeeds[0] is string)))
+        && (!('subcategories' in data) || isValidShortStringList(data.subcategories, 10, 120))
+        && (!('removalNeeds' in data) || isValidShortStringList(data.removalNeeds, 10, 120))
         && (!('otherRemovalDetails' in data) || (data.otherRemovalDetails is string && data.otherRemovalDetails.size() <= 500))
         && (!('timingPreference' in data) || (data.timingPreference in ['asap', 'flexible', 'specific_date']))
         && (!('preferredDate' in data) || (data.preferredDate is string && data.preferredDate.size() <= 20))
@@ -109,7 +211,8 @@ service cloud.firestore {
         && (!('zipCode' in data) || (data.zipCode is string && data.zipCode.size() <= 20))
         && (!('areaDescription' in data) || (data.areaDescription is string && data.areaDescription.size() <= 2000))
         && (!('squareFootage' in data) || (data.squareFootage is number && data.squareFootage >= 0))
-        && (!('photoCount' in data) || (data.photoCount is number && data.photoCount >= 0 && data.photoCount <= 10))
+        && (!('photos' in data) || isValidPhotoList(data.photos))
+        && (!('photoCount' in data) || (data.photoCount is number && data.photoCount >= 0 && data.photoCount <= 5))
         && data.status in ['new', 'reviewed', 'quoted', 'accepted', 'declined']
         && (!('estimatedPrice' in data) || (data.estimatedPrice is number && data.estimatedPrice >= 0))
         && (!('adminNotes' in data) || (data.adminNotes is string && data.adminNotes.size() <= 1000))
@@ -129,9 +232,9 @@ service cloud.firestore {
           'id', 'quoteId', 'customerId', 'customerName', 'customerEmail',
           'customerPhone', 'serviceId', 'serviceName', 'serviceAddress',
           'scheduledDate', 'scheduledTime', 'technicianId', 'technicianName',
-          'status', 'notes', 'technicianNotes', 'price', 'paymentStatus',
-          'paymentMethod', 'paidAt', 'completedAt', 'cancellationReason',
-          'squareFootage', 'createdAt', 'updatedAt'
+          'technicianEmail', 'status', 'notes', 'technicianNotes', 'price',
+          'paymentStatus', 'paymentMethod', 'paidAt', 'completedAt',
+          'cancellationReason', 'squareFootage', 'createdAt', 'updatedAt'
         ])
         && isValidId(data.id)
         && (!('quoteId' in data) || isValidId(data.quoteId))
@@ -146,6 +249,7 @@ service cloud.firestore {
         && data.scheduledTime is string && data.scheduledTime.size() >= 3 && data.scheduledTime.size() <= 40
         && data.technicianId is string && data.technicianId.size() >= 1 && data.technicianId.size() <= 80
         && data.technicianName is string && data.technicianName.size() >= 1 && data.technicianName.size() <= 120
+        && (!('technicianEmail' in data) || (data.technicianEmail is string && data.technicianEmail.size() <= 200))
         && data.status in ['scheduled', 'en_route', 'in_progress', 'completed', 'cancelled']
         && (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000))
         && (!('technicianNotes' in data) || (data.technicianNotes is string && data.technicianNotes.size() <= 1000))
@@ -216,7 +320,8 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'id', 'threadId', 'customerName', 'senderRole', 'senderName',
-          'message', 'timestamp', 'quoteId', 'appointmentId', 'directPrice', 'createdAt'
+          'message', 'timestamp', 'quoteId', 'appointmentId', 'directPrice',
+          'assignedTechIds', 'assignedTechEmails', 'createdAt'
         ])
         && isValidId(data.id)
         && isValidId(data.threadId)
@@ -228,7 +333,18 @@ service cloud.firestore {
         && (!('quoteId' in data) || isValidId(data.quoteId))
         && (!('appointmentId' in data) || isValidId(data.appointmentId))
         && (!('directPrice' in data) || (data.directPrice is number && data.directPrice >= 0))
+        && (!('assignedTechIds' in data) || isValidShortStringList(data.assignedTechIds, 10, 128))
+        && (!('assignedTechEmails' in data) || isValidShortStringList(data.assignedTechEmails, 10, 200))
         && data.createdAt is timestamp;
+    }
+
+    function isValidDialogueThreadAccess(data) {
+      return data.keys().hasAll(['threadId', 'assignedTechIds', 'assignedTechEmails', 'updatedAt'])
+        && data.keys().hasOnly(['threadId', 'assignedTechIds', 'assignedTechEmails', 'updatedAt'])
+        && isValidId(data.threadId)
+        && isValidShortStringList(data.assignedTechIds, 10, 128)
+        && isValidShortStringList(data.assignedTechEmails, 10, 200)
+        && data.updatedAt is timestamp;
     }
 
     // 4. Collection Rules
@@ -236,7 +352,7 @@ service cloud.firestore {
     // Customers: Private PII strictly isolated to owning UID or Admin
     match /customers/{customerId} {
       allow get: if isValidId(customerId) && isSignedIn() && (request.auth.uid == customerId || isAdmin());
-      allow list: if isBootstrappedAdmin();
+      allow list: if isAdmin();
 
       allow create: if isValidId(customerId)
         && isVerifiedEmail()
@@ -259,12 +375,20 @@ service cloud.firestore {
       allow delete: if isValidId(customerId) && isBootstrappedAdmin();
     }
 
-    // Admins Directory: Strictly protected
+    // Admins Directory: Authorized admins can read directory; only Bootstrapped Owner mutates admin roster
     match /admins/{adminId} {
-      allow get: if isValidId(adminId) && isSignedIn() && (request.auth.uid == adminId || isBootstrappedAdmin());
-      allow list: if isBootstrappedAdmin();
-      allow create, update: if isValidId(adminId) && isBootstrappedAdmin() && isValidAdminUser(incoming());
+      allow get: if isValidId(adminId) && isSignedIn() && (request.auth.uid == adminId || isAdmin());
+      allow list: if isAdmin();
+      allow create, update: if isValidId(adminId) && isBootstrappedAdmin() && isValidAdminUser(incoming()) && incoming().uid == adminId;
       allow delete: if isValidId(adminId) && isBootstrappedAdmin();
+    }
+
+    // Staff / Field Technicians Directory: Readable by Admin or owning Tech; Admin writes
+    match /staff/{staffId} {
+      allow get: if isValidId(staffId) && isSignedIn() && (request.auth.uid == staffId || isAdmin());
+      allow list: if isAdmin();
+      allow create, update: if isValidId(staffId) && isAdmin() && isValidStaffUser(incoming()) && incoming().uid == staffId;
+      allow delete: if isValidId(staffId) && isAdmin();
     }
 
     // Blocked Slots: Publicly readable (no PII) so booking UI disables blocked times immediately; Admin-only write
@@ -283,10 +407,48 @@ service cloud.firestore {
       allow delete: if isValidId(slotId) && isAdmin();
     }
 
+    // Slot Availability: Publicly readable non-PII reservation counter updated transactionally on bookings/cancels
+    match /slotAvailability/{slotKey} {
+      allow get: if isValidId(slotKey);
+      allow list: if true;
+
+      allow create: if isValidId(slotKey)
+        && isVerifiedEmail()
+        && isValidSlotAvailability(incoming())
+        && incoming().id == slotKey
+        && incoming().updatedAt == request.time
+        && (isAdmin() || (incoming().bookedCount == 1 && incoming().appointmentIds.size() == 1));
+
+      allow update: if isValidId(slotKey)
+        && isVerifiedEmail()
+        && isValidSlotAvailability(incoming())
+        && incoming().id == existing().id
+        && incoming().date == existing().date
+        && incoming().timeSlot == existing().timeSlot
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() ||
+          (incoming().bookedCount >= existing().bookedCount - 1 && incoming().bookedCount <= existing().bookedCount + 1)
+        );
+
+      allow delete: if isValidId(slotKey) && isAdmin();
+    }
+
+    // Site Config: Publicly readable business hours, contact details, and non-PII crew roster; Admin-only write
+    match /siteConfig/{configId} {
+      allow get: if isValidId(configId);
+      allow list: if true;
+      allow create, update: if configId == 'business'
+        && isAdmin()
+        && isValidSiteConfig(incoming())
+        && incoming().updatedAt == request.time;
+      allow delete: if false;
+    }
+
     // Quote Requests: Scoped strictly to owning customer or Admin
     match /quotes/{quoteId} {
       allow get: if isValidId(quoteId) && isSignedIn() && (existing().customerId == request.auth.uid || isAdmin());
-      allow list: if isSignedIn() && (resource.data.customerId == request.auth.uid || isBootstrappedAdmin());
+      allow list: if isSignedIn() && (resource.data.customerId == request.auth.uid || isAdmin());
 
       allow create: if isValidId(quoteId)
         && isVerifiedEmail()
@@ -310,10 +472,25 @@ service cloud.firestore {
       allow delete: if isValidId(quoteId) && isAdmin();
     }
 
-    // Appointments & Service History: Scoped strictly to owning customer or Admin
+    // Appointments & Service History: Scoped strictly to owning customer, assigned technician, or Admin
     match /appointments/{appointmentId} {
-      allow get: if isValidId(appointmentId) && isSignedIn() && (existing().customerId == request.auth.uid || isAdmin());
-      allow list: if isSignedIn() && (resource.data.customerId == request.auth.uid || isBootstrappedAdmin());
+      allow get: if isValidId(appointmentId) && isSignedIn() && (
+        existing().customerId == request.auth.uid ||
+        isAdmin() ||
+        (isTechnician() && (
+          existing().technicianId == request.auth.uid ||
+          ('email' in request.auth.token && 'technicianEmail' in existing() && existing().technicianEmail.lower() == request.auth.token.email.lower())
+        ))
+      );
+
+      allow list: if isSignedIn() && (
+        resource.data.customerId == request.auth.uid ||
+        isAdmin() ||
+        (isVerifiedEmail() && (
+          resource.data.technicianId == request.auth.uid ||
+          ('email' in request.auth.token && 'technicianEmail' in resource.data && resource.data.technicianEmail.lower() == request.auth.token.email.lower())
+        ))
+      );
 
       allow create: if isValidId(appointmentId)
         && isVerifiedEmail()
@@ -337,8 +514,9 @@ service cloud.firestore {
             isAdmin() &&
             incoming().diff(existing()).affectedKeys().hasOnly([
               'scheduledDate', 'scheduledTime', 'technicianId', 'technicianName',
-              'status', 'notes', 'technicianNotes', 'price', 'paymentStatus',
-              'paymentMethod', 'paidAt', 'completedAt', 'cancellationReason', 'updatedAt'
+              'technicianEmail', 'status', 'notes', 'technicianNotes', 'price',
+              'paymentStatus', 'paymentMethod', 'paidAt', 'completedAt',
+              'cancellationReason', 'updatedAt'
             ])
           )
           ||
@@ -355,6 +533,20 @@ service cloud.firestore {
                incoming().diff(existing()).affectedKeys().hasOnly(['status', 'cancellationReason', 'updatedAt']))
             )
           )
+          ||
+          // Tier 3: Assigned authorized technician can update job progress and field notes while active
+          (
+            isTechnician() &&
+            (
+              existing().technicianId == request.auth.uid ||
+              ('email' in request.auth.token && 'technicianEmail' in existing() && existing().technicianEmail.lower() == request.auth.token.email.lower())
+            ) &&
+            existing().status != 'cancelled' &&
+            existing().status != 'completed' &&
+            incoming().price == existing().price &&
+            incoming().paymentStatus == existing().paymentStatus &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'technicianNotes', 'completedAt', 'updatedAt'])
+          )
         );
 
       allow delete: if isValidId(appointmentId) && isAdmin();
@@ -363,7 +555,7 @@ service cloud.firestore {
     // Payments Ledger: Strictly Admin-only
     match /payments/{paymentId} {
       allow get: if isValidId(paymentId) && isAdmin();
-      allow list: if isBootstrappedAdmin();
+      allow list: if isAdmin();
       allow create: if isValidId(paymentId)
         && isAdmin()
         && isValidPayment(incoming())
@@ -376,7 +568,7 @@ service cloud.firestore {
     // Admin Notifications: Customers can trigger alerts on quote submit; only Admin reads/manages
     match /adminNotifications/{notificationId} {
       allow get: if isValidId(notificationId) && isAdmin();
-      allow list: if isBootstrappedAdmin();
+      allow list: if isAdmin();
       allow create: if isValidId(notificationId)
         && isVerifiedEmail()
         && isValidAdminNotification(incoming())
@@ -393,10 +585,56 @@ service cloud.firestore {
       allow delete: if isValidId(notificationId) && isAdmin();
     }
 
-    // Dialogue Messages: Thread scoped to customer UID or Admin
+    // Dialogue Thread Access Index: Synchronized on customer booking or admin dispatch assignment
+    match /dialogueThreads/{threadId} {
+      allow get: if isValidId(threadId) && isSignedIn() && (
+        threadId == request.auth.uid ||
+        isAdmin() ||
+        (isTechnician() && (
+          request.auth.uid in existing().assignedTechIds ||
+          ('email' in request.auth.token && request.auth.token.email.lower() in existing().assignedTechEmails)
+        ))
+      );
+
+      allow list: if isSignedIn() && (
+        resource.data.threadId == request.auth.uid ||
+        isAdmin() ||
+        (isVerifiedEmail() && (
+          request.auth.uid in resource.data.assignedTechIds ||
+          ('email' in request.auth.token && request.auth.token.email.lower() in resource.data.assignedTechEmails)
+        ))
+      );
+
+      allow create, update: if isValidId(threadId)
+        && isVerifiedEmail()
+        && isValidDialogueThreadAccess(incoming())
+        && incoming().threadId == threadId
+        && incoming().updatedAt == request.time
+        && (threadId == request.auth.uid || isAdmin());
+
+      allow delete: if isValidId(threadId) && isAdmin();
+    }
+
+    // Dialogue Messages: Thread scoped to customer UID, Admin, or assigned Technician
     match /dialogueMessages/{messageId} {
-      allow get: if isValidId(messageId) && isSignedIn() && (existing().threadId == request.auth.uid || isAdmin());
-      allow list: if isSignedIn() && (resource.data.threadId == request.auth.uid || isBootstrappedAdmin());
+      allow get: if isValidId(messageId) && isSignedIn() && (
+        existing().threadId == request.auth.uid ||
+        isAdmin() ||
+        (isTechnician() && (
+          ('assignedTechIds' in existing() && request.auth.uid in existing().assignedTechIds) ||
+          ('email' in request.auth.token && 'assignedTechEmails' in existing() && request.auth.token.email.lower() in existing().assignedTechEmails)
+        ))
+      );
+
+      allow list: if isSignedIn() && (
+        resource.data.threadId == request.auth.uid ||
+        isAdmin() ||
+        (isVerifiedEmail() && (
+          ('assignedTechIds' in resource.data && request.auth.uid in resource.data.assignedTechIds) ||
+          ('email' in request.auth.token && 'assignedTechEmails' in resource.data && request.auth.token.email.lower() in resource.data.assignedTechEmails)
+        ))
+      );
+
       allow create: if isValidId(messageId)
         && isVerifiedEmail()
         && isValidDialogueMessage(incoming())
@@ -404,9 +642,33 @@ service cloud.firestore {
         && incoming().createdAt == request.time
         && (
           (incoming().threadId == request.auth.uid && incoming().senderRole == 'client') ||
+          (
+            isTechnician() &&
+            incoming().senderRole == 'technician' &&
+            exists(/databases/$(database)/documents/dialogueThreads/$(incoming().threadId)) &&
+            (
+              request.auth.uid in get(/databases/$(database)/documents/dialogueThreads/$(incoming().threadId)).data.assignedTechIds ||
+              ('email' in request.auth.token && request.auth.token.email.lower() in get(/databases/$(database)/documents/dialogueThreads/$(incoming().threadId)).data.assignedTechEmails)
+            )
+          ) ||
           isAdmin()
         );
-      allow update, delete: if isValidId(messageId) && isAdmin();
+
+      allow update: if isValidId(messageId)
+        && isVerifiedEmail()
+        && isValidDialogueMessage(incoming())
+        && incoming().id == existing().id
+        && incoming().threadId == existing().threadId
+        && incoming().createdAt == existing().createdAt
+        && (
+          isAdmin() ||
+          (
+            existing().threadId == request.auth.uid &&
+            incoming().diff(existing()).affectedKeys().hasOnly(['assignedTechIds', 'assignedTechEmails'])
+          )
+        );
+
+      allow delete: if isValidId(messageId) && isAdmin();
     }
   }
 }
